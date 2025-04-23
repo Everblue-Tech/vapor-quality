@@ -18,7 +18,15 @@ const SaveCancelButtonWrapper: FC<SaveCancelButtonWrapperProps> = ({
 
     return (
         <StoreContext.Consumer>
-            {({ docId, metadata, upsertMetadata }) => {
+            {({
+                docId,
+                metadata,
+                upsertMetadata,
+                userId,
+                applicationId,
+                processId,
+                processStepId,
+            }) => {
                 const metadata_val = metadata as { status: string }
                 return (
                     <SaveCancelButton
@@ -28,6 +36,10 @@ const SaveCancelButtonWrapper: FC<SaveCancelButtonWrapperProps> = ({
                         }
                         value={get(metadata, path)}
                         doc_status={metadata_val?.status}
+                        userId={userId}
+                        applicationId={applicationId}
+                        processId={processId}
+                        processStepId={processStepId}
                     />
                 )
             }}

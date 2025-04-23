@@ -20,9 +20,7 @@ import {
     useDB,
 } from '../utilities/database_utils'
 import EventEmitter from 'events'
-import {
-    getAuthToken
-} from '../auth/keycloak'
+import { getAuthToken } from '../auth/keycloak'
 import jsPDF from 'jspdf'
 
 PouchDB.plugin(PouchDBUpsert)
@@ -65,6 +63,10 @@ export const StoreContext = React.createContext({
     deleteAttachment: (attachmentId: string) => {},
     upsertData: ((pathStr: string, data: any) => {}) as UpsertData,
     upsertMetadata: ((pathStr: string, data: any) => {}) as UpsertMetadata,
+    userId: null as string | null,
+    applicationId: null as string | null,
+    processId: null as string | null,
+    processStepId: null as string | null,
 })
 
 interface StoreProviderProps {
@@ -109,6 +111,90 @@ export const StoreProvider: FC<StoreProviderProps> = ({
 
     // Increase the maximum number of listeners for all EventEmitters
     EventEmitter.defaultMaxListeners = 20
+
+    const [userId, setUserId] = useState<string | null>(null)
+    const [applicationId, setApplicationId] = useState<string | null>(null)
+    const [processStepId, setProcessStepId] = useState<string | null>(null)
+    const [processId, setProcessId] = useState<string | null>(null)
+
+    console.log('STORE PROVIDER', userId)
+    console.log('STORE PROVIDER 2', applicationId, processStepId, processId)
+
+    useEffect(() => {
+        function handleMessage(event: MessageEvent) {
+            if (event.origin !== 'http://localhost:3000') return
+
+            if (event.data?.type === 'INIT_FORM_DATA') {
+                const { user_id, application_id, step_id, process_id } =
+                    event.data.payload
+
+                // Only update if all fields are non-null
+                if (user_id && application_id && step_id && process_id) {
+                    console.log('Received from parent:', {
+                        user_id,
+                        application_id,
+                        step_id,
+                        process_id,
+                    })
+
+                    setUserId(user_id)
+                    setApplicationId(application_id)
+                    setProcessStepId(step_id)
+                    setProcessId(process_id)
+                } else {
+                    console.warn(
+                        'Received incomplete form metadata, ignoring:',
+                        event.data.payload,
+                    )
+                }
+            }
+        }
+
+        window.addEventListener('message', handleMessage)
+        return () => window.removeEventListener('message', handleMessage)
+    }, [])
+
+    useEffect(() => {
+        if (!userId || !processStepId) return
+
+        fetch(
+            `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+            {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${getAuthToken()}` },
+            },
+        )
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.form) {
+                    if (!doc.data_) doc.data_ = {}
+                    doc.data_.form_id = data.form.id
+                    localStorage.setItem('form_id', data.form.id)
+                    window.docData = doc.data_
+                } else {
+                    createQualityInstallForm(userId, processStepId)
+                }
+            })
+            .catch(error =>
+                console.error('Error fetching quality install form:', error),
+            )
+    }, [userId, processStepId])
+
+    useEffect(() => {
+        persistSessionState({ userId, applicationId, processId, processStepId })
+    }, [userId, applicationId, processId, processStepId])
+
+    useEffect(() => {
+        const savedUserId = localStorage.getItem('user_id')
+        const savedApplicationId = localStorage.getItem('application_id')
+        const savedProcessId = localStorage.getItem('process_id')
+        const savedProcessStepId = localStorage.getItem('process_step_id')
+
+        if (savedUserId) setUserId(savedUserId)
+        if (savedApplicationId) setApplicationId(savedApplicationId)
+        if (savedProcessId) setProcessId(savedProcessId)
+        if (savedProcessStepId) setProcessStepId(savedProcessStepId)
+    }, [])
 
     /**
      * Updates component state based on a database document change
@@ -183,67 +269,67 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         }
     }
 
-    useEffect(() => {
-        const { processId, userId, processStepId } = extractLocalStorageData()
-        if (!processStepId && processId) {
-            console.log(`Fetching process_step_id for process: ${processId}`)
+    // useEffect(() => {
+    //     const { processId, userId, processStepId } = extractLocalStorageData()
+    //     if (!processStepId && processId) {
+    //         console.log(`Fetching process_step_id for process: ${processId}`)
 
-            fetch(`http://localhost:5000/api/process/${processId}/steps`, {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${getAuthToken()}` },
-            })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('API Response for process steps:', data)
+    //         fetch(`http://localhost:5000/api/process/${processId}/steps`, {
+    //             method: 'GET',
+    //             headers: { Authorization: `Bearer ${getAuthToken()}` },
+    //         })
+    //             .then(response => response.json())
+    //             .then(data => {
+    //                 console.log('API Response for process steps:', data)
 
-                    if (data.steps && data.steps.length > 0) {
-                        const qualityInstallStep = data.steps.find(
-                            (step: { description?: string }) =>
-                                step.description &&
-                                step.description.includes('quality install'),
-                        )
+    //                 if (data.steps && data.steps.length > 0) {
+    //                     const qualityInstallStep = data.steps.find(
+    //                         (step: { description?: string }) =>
+    //                             step.description &&
+    //                             step.description.includes('quality install'),
+    //                     )
 
-                        if (qualityInstallStep) {
-                            let processStepId = qualityInstallStep.id
-                            localStorage.setItem(
-                                'process_step_id',
-                                processStepId,
-                            )
-                        }
-                    } else {
-                        console.warn('No steps found for process:', processId)
-                    }
-                })
-                .catch(error =>
-                    console.error('Error fetching process_step_id:', error),
-                )
-        }
-        fetch(
-            `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
-            {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${getAuthToken()}` },
-            },
-        )
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && data.form) {
-                    if (!doc.data_) doc.data_ = {}
-                    doc.data_.form_id = data.form.id
-                    localStorage.setItem('form_id', data.form.id)
-                    window.docData = doc.data_
-                } else {
-                    createQualityInstallForm(userId, processStepId)
-                }
-            })
-            .catch(error =>
-                console.error('Error fetching quality install form:', error),
-            )
-    }, [])
+    //                     if (qualityInstallStep) {
+    //                         let processStepId = qualityInstallStep.id
+    //                         localStorage.setItem(
+    //                             'process_step_id',
+    //                             processStepId,
+    //                         )
+    //                     }
+    //                 } else {
+    //                     console.warn('No steps found for process:', processId)
+    //                 }
+    //             })
+    //             .catch(error =>
+    //                 console.error('Error fetching process_step_id:', error),
+    //             )
+    //     }
+    //     fetch(
+    //         `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+    //         {
+    //             method: 'GET',
+    //             headers: { Authorization: `Bearer ${getAuthToken()}` },
+    //         },
+    //     )
+    //         .then(response => response.json())
+    //         .then(data => {
+    //             if (data.success && data.form) {
+    //                 if (!doc.data_) doc.data_ = {}
+    //                 doc.data_.form_id = data.form.id
+    //                 localStorage.setItem('form_id', data.form.id)
+    //                 window.docData = doc.data_
+    //             } else {
+    //                 createQualityInstallForm(userId, processStepId)
+    //             }
+    //         })
+    //         .catch(error =>
+    //             console.error('Error fetching quality install form:', error),
+    //         )
+    // }, [])
 
     const createQualityInstallForm = (
-        userId: string,
-        processStepId: string,
+        userId: string | null,
+        processStepId: string | null,
     ) => {
         fetch(`http://localhost:5000/api/quality-install`, {
             method: 'POST',
@@ -396,7 +482,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         pathStr = 'data_.' + pathStr
         upsertDoc(pathStr, value)
         window.docData = doc.data_
-        autoSaveToRDS()
+        autoSaveToRDS(userId, processStepId, applicationId)
     }
 
     /**
@@ -549,6 +635,10 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                 deleteAttachment,
                 upsertData,
                 upsertMetadata,
+                userId,
+                applicationId,
+                processId,
+                processStepId,
             }}
         >
             {children}
@@ -713,6 +803,8 @@ function storeNewQualityInstallSubmission(
         },
     }
 
+    console.log(newObject)
+
     localStorage.setItem(localStorageKey, JSON.stringify(newObject))
 }
 
@@ -734,9 +826,9 @@ function extractLocalStorageData() {
     }
     let processStepId = localStorage.getItem('process_step_id') || ''
     return {
-        "processId"    : processId,
-        "userId"       : userId,
-        "processStepId": processStepId
+        processId: processId,
+        userId: userId,
+        processStepId: processStepId,
     }
 }
 
@@ -777,19 +869,46 @@ export const isFormComplete = (formData: any, metadata?: any): boolean => {
     return true
 }
 
-export const autoSaveToRDS = async () => {
-    const { processId, userId, processStepId } = extractLocalStorageData()
+export function persistSessionState({
+    userId,
+    applicationId,
+    processId,
+    processStepId,
+}: {
+    userId?: string | null
+    applicationId?: string | null
+    processId?: string | null
+    processStepId?: string | null
+}) {
+    if (userId) localStorage.setItem('user_id', userId)
+    if (applicationId) localStorage.setItem('application_id', applicationId)
+    if (processId) localStorage.setItem('process_id', processId)
+    if (processStepId) localStorage.setItem('process_step_id', processStepId)
+}
+
+export const autoSaveToRDS = async (
+    userId: string | null,
+    processStepId: string | null,
+    applicationId: string | null,
+) => {
+    if (!userId || !processStepId || !applicationId) {
+        console.warn('Missing required content for autoSaveToRDS')
+        return
+    }
+
     const formData = {
         user_id: userId,
         process_step_id: processStepId,
         form_data: window.docData || {},
     }
+
+    console.log('HERE HERE FORMDATA', formData)
+
     try {
         let response
-        const formId = localStorage.getItem('form_id')
-        if (formId) {
+        if (applicationId) {
             response = await fetch(
-                `http://localhost:5000/api/quality-install/${formId}`,
+                `http://localhost:5000/api/quality-install/${applicationId}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -813,11 +932,7 @@ export const autoSaveToRDS = async () => {
             )
         }
         const data = await response.json()
-        if (data.success) {
-            if (!formId) {
-                localStorage.setItem('form_id', data.form_id)
-            }
-        }
+        console.log('DATA', data)
     } catch (error) {
         console.error('Error auto-saving:', error)
     }

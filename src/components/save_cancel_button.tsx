@@ -14,6 +14,10 @@ interface SaveCancelButtonProps {
     value: string
     updateValue: (inputValue: string) => void
     doc_status: string
+    userId: string | null
+    applicationId: string | null
+    processId: string | null
+    processStepId: string | null
 }
 
 /**
@@ -34,6 +38,9 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     value,
     updateValue,
     doc_status,
+    userId,
+    applicationId,
+    processStepId,
 }) => {
     const navigate = useNavigate()
     const [disableSave, setDisableSave] = useState<boolean>(true)
@@ -56,12 +63,13 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const handleSaveClick = async () => {
         try {
             const projectDoc: any = await db.get(id)
+            console.log('PROJECTDOC', projectDoc)
             if (!projectDoc.metadata_ || !projectDoc.metadata_.doc_name) {
                 alert('Please enter a project name before saving.')
                 return
             }
             if (!projectDoc.data_ || !isFormComplete(projectDoc.data_)) {
-                await autoSaveToRDS()
+                await autoSaveToRDS(userId, processStepId, applicationId)
             } else {
                 await saveProjectAndUploadToS3(projectDoc)
             }
