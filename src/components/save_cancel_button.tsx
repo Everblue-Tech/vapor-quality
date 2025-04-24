@@ -6,7 +6,7 @@ import { useDB } from '../utilities/database_utils'
 import {
     saveProjectAndUploadToS3,
     isFormComplete,
-    autoSaveToRDS,
+    saveToVaporCoreDB,
 } from './store'
 
 interface SaveCancelButtonProps {
@@ -18,6 +18,7 @@ interface SaveCancelButtonProps {
     applicationId: string | null
     processId: string | null
     processStepId: string | null
+    selectedFormId: string | null
 }
 
 /**
@@ -41,6 +42,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     userId,
     applicationId,
     processStepId,
+    selectedFormId,
 }) => {
     const navigate = useNavigate()
     const [disableSave, setDisableSave] = useState<boolean>(true)
@@ -68,11 +70,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 alert('Please enter a project name before saving.')
                 return
             }
-            if (!projectDoc.data_ || !isFormComplete(projectDoc.data_)) {
-                await autoSaveToRDS(userId, processStepId, applicationId)
-            } else {
-                await saveProjectAndUploadToS3(projectDoc)
-            }
+            await saveToVaporCoreDB(userId, processStepId, selectedFormId)
             updateValue('created')
             navigate('/', { replace: true })
         } catch (error) {

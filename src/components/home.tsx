@@ -1,4 +1,10 @@
-import React, { useState, type FC, useEffect, SetStateAction } from 'react'
+import React, {
+    useState,
+    type FC,
+    useEffect,
+    SetStateAction,
+    useContext,
+} from 'react'
 import { ListGroup, Button, Modal } from 'react-bootstrap'
 import { LinkContainer } from 'react-router-bootstrap'
 import { TfiTrash, TfiPencil, TfiArrowDown } from 'react-icons/tfi'
@@ -6,6 +12,8 @@ import { useNavigate } from 'react-router-dom'
 import { deleteEmptyProjects, useDB } from '../utilities/database_utils'
 import ImportDoc from './import_document_wrapper'
 import ExportDoc from './export_document_wrapper'
+import { StoreContext } from '../components/store'
+import { getAuthToken } from '../auth/keycloak'
 
 /**
  * Home:  Renders the Home page for the APP
@@ -20,6 +28,8 @@ const Home: FC = () => {
     const [selectedProjectNameToDelete, setSelectedProjectNameToDelete] =
         useState('')
     const db = useDB()
+
+    const { formEntries, handleFormSelect } = useContext(StoreContext)
 
     const retrieveProjectInfo = async (): Promise<void> => {
         // Dynamically import the function when needed
@@ -42,12 +52,54 @@ const Home: FC = () => {
     }, [projectList]) // Fetch the project details from DB as the state variable projectList is updated
 
     const handleAddJob = async () => {
-        // Dynamically import the function when needed
         const { putNewProject } = await import('../utilities/database_utils')
         const updatedDBDoc: any = await putNewProject(db, '', '')
 
-        // Refresh the project list after adding the new project
+        // Clear any previously selected form
+        localStorage.removeItem('form_id')
+        window.docData = {} // start fresh
+
+        // Create a new quality-install form in RDS
+        try {
+            const response = await fetch(
+                'http://localhost:5000/api/quality-install',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${getAuthToken()}`,
+                    },
+                    body: JSON.stringify({
+                        user_id: localStorage.getItem('user_id'),
+                        process_step_id:
+                            localStorage.getItem('process_step_id'),
+                        form_data: {},
+                    }),
+                },
+            )
+
+            const data = await response.json()
+
+            if (data.success && data.form_data_id) {
+                localStorage.setItem('form_id', data.form_data_id)
+                // call handleFormSelect here to hydrate state:
+                handleFormSelect({
+                    id: data.form_data_id,
+                    user_id: localStorage.getItem('user_id')!,
+                    process_step_id: localStorage.getItem('process_step_id')!,
+                    form_data: {},
+                    created_at: new Date().toISOString(),
+                    updated_at: null,
+                })
+            } else {
+                console.error('Failed to create form in RDS:', data)
+            }
+        } catch (error) {
+            console.error('Error creating form in RDS:', error)
+        }
+
         await retrieveProjectInfo()
+
         if (updatedDBDoc) editAddressDetails(updatedDBDoc.id)
     }
 
@@ -126,6 +178,11 @@ const Home: FC = () => {
     }
 
     const editAddressDetails = (projectID: string) => {
+        const selectedForm = formEntries.find(form => form.id === projectID)
+        if (selectedForm) {
+            // set selectedFormId and hydrate window.docData
+            handleFormSelect(selectedForm)
+        }
         navigate('app/' + projectID, { replace: true })
     }
 

@@ -26,6 +26,7 @@ const SaveCancelButtonWrapper: FC<SaveCancelButtonWrapperProps> = ({
                 applicationId,
                 processId,
                 processStepId,
+                selectedFormId,
             }) => {
                 const metadata_val = metadata as { status: string }
                 return (
@@ -40,6 +41,7 @@ const SaveCancelButtonWrapper: FC<SaveCancelButtonWrapperProps> = ({
                         applicationId={applicationId}
                         processId={processId}
                         processStepId={processStepId}
+                        selectedFormId={selectedFormId}
                     />
                 )
             }}
