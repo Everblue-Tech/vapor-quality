@@ -1,4 +1,4 @@
-import { FC, useEffect, useState } from 'react'
+import { FC, useContext, useEffect, useState } from 'react'
 import { Button } from 'react-bootstrap'
 import type { MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -7,6 +7,7 @@ import {
     saveProjectAndUploadToS3,
     isFormComplete,
     saveToVaporCoreDB,
+    StoreContext,
 } from './store'
 
 interface SaveCancelButtonProps {
@@ -51,6 +52,8 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const [buttonLabel, setButtonLabel] = useState<String>('Save Project')
     const db = useDB()
 
+    const { setSelectedFormId, handleFormSelect } = useContext(StoreContext)
+
     const handleCancelButtonClick = async (
         event: MouseEvent<HTMLButtonElement>,
     ) => {
@@ -65,12 +68,28 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const handleSaveClick = async () => {
         try {
             const projectDoc: any = await db.get(id)
-            console.log('PROJECTDOC', projectDoc)
             if (!projectDoc.metadata_ || !projectDoc.metadata_.doc_name) {
                 alert('Please enter a project name before saving.')
                 return
             }
-            await saveToVaporCoreDB(userId, processStepId, selectedFormId)
+
+            const resolvedFormId =
+                selectedFormId || localStorage.getItem('form_id')
+
+            console.log('selectedFormId', selectedFormId)
+
+            if (!resolvedFormId) {
+                alert('Form ID is not available yet. Please wait a moment.')
+                return
+            }
+
+            await saveToVaporCoreDB(
+                userId,
+                processStepId,
+                resolvedFormId,
+                setSelectedFormId,
+                handleFormSelect,
+            )
             updateValue('created')
             navigate('/', { replace: true })
         } catch (error) {

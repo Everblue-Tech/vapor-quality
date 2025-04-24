@@ -47,6 +47,7 @@ type Attachments = Record<
 declare global {
     interface Window {
         docData: any
+        docDataMap: Record<string, any>
     }
 }
 
@@ -85,7 +86,7 @@ interface StoreProviderProps {
     parentId?: string | undefined
 }
 
-type FormEntry = {
+export type FormEntry = {
     id: string
     process_step_id: string
     user_id: string
@@ -110,6 +111,10 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     type,
     parentId,
 }) => {
+    // ensure docDataMap is always initialized
+    if (typeof window !== 'undefined' && !window.docDataMap) {
+        window.docDataMap = {}
+    }
     const changesRef = useRef<PouchDB.Core.Changes<{}>>()
     const revisionRef = useRef<string>()
     // The attachments state will have the form: {[att_id]: {blob, digest, metadata}, ...}
@@ -136,13 +141,30 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     const [formEntries, setFormEntries] = useState<FormEntry[]>([])
     // tracks which one is selected for editing
     const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
+    const selectedFormIdRef = useRef<string | null>(null)
 
-    const handleFormSelect = (form: FormEntry) => {
-        setSelectedFormId(form.id)
-        // persist selected form ID
-        localStorage.setItem('form_id', form.id)
-        // hydrate form data for editing
-        window.docData = form.form_data
+    useEffect(() => {
+        selectedFormIdRef.current = selectedFormId
+    }, [selectedFormId])
+
+    const handleFormSelect = (form: FormEntry | null) => {
+        if (!window.docDataMap) window.docDataMap = {}
+
+        if (form) {
+            setSelectedFormId(form.id)
+            localStorage.setItem('form_id', form.id)
+
+            // store form data in a form-specific map
+            window.docDataMap[form.id] = form.form_data
+            window.docData = form.form_data
+
+            console.log(`Selected form: ${form.id}`)
+        } else {
+            setSelectedFormId(null)
+            localStorage.removeItem('form_id')
+            window.docData = {}
+            console.warn('Deselected form or selected form was null')
+        }
     }
 
     console.log('STORE PROVIDER', userId)
@@ -202,6 +224,10 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                     setFormEntries(data.forms)
 
                     const storedFormId = localStorage.getItem('form_id')
+                    window.docDataMap = {}
+                    data.forms.forEach((form: FormEntry) => {
+                        window.docDataMap[form.id] = form.form_data
+                    })
                     const matchingForm = data.forms.find(
                         (form: FormEntry) => form.id === storedFormId,
                     )
@@ -320,33 +346,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                 setAttachments({ ...attachments, ...newAttachments })
             }
         }
-    }
-
-    const createQualityInstallForm = (
-        userId: string | null,
-        processStepId: string | null,
-    ) => {
-        fetch(`http://localhost:5000/api/quality-install`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${getAuthToken()}`,
-            },
-            body: JSON.stringify({
-                user_id: userId,
-                process_step_id: processStepId,
-                form_data: {},
-            }),
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    localStorage.setItem('form_id', data.form_id)
-                }
-            })
-            .catch(error =>
-                console.error('Error in createQualityInstallForm:', error),
-            )
     }
 
     useEffect(() => {
@@ -475,8 +474,48 @@ export const StoreProvider: FC<StoreProviderProps> = ({
 
     const upsertData: UpsertData = (pathStr, value) => {
         pathStr = 'data_.' + pathStr
-        upsertDoc(pathStr, value)
-        window.docData = doc.data_
+        const updatedDoc = immutableUpsert(
+            doc,
+            toPath(pathStr) as NonEmptyArray<string>,
+            value,
+        )
+        setDoc(updatedDoc)
+
+        const newData = updatedDoc.data_
+        window.docData = newData
+        if (typeof window !== 'undefined' && selectedFormIdRef.current) {
+            if (!window.docDataMap) {
+                window.docDataMap = {}
+            }
+            window.docDataMap[selectedFormIdRef.current] = newData
+        }
+
+        console.log(
+            'Updated docDataMap for',
+            selectedFormIdRef.current,
+            newData,
+        )
+
+        if (db != null) {
+            db.upsert(docId, function upsertFn(dbDoc: any) {
+                const result = { ...dbDoc, ...updatedDoc }
+                if (!result.metadata_) {
+                    result.metadata_ = {
+                        created_at: new Date().toISOString(),
+                        last_modified_at: new Date().toISOString(),
+                    }
+                } else {
+                    result.metadata_.last_modified_at = new Date().toISOString()
+                }
+                return result
+            })
+                .then(function (res) {
+                    revisionRef.current = res.rev
+                })
+                .catch(function (err: Error) {
+                    console.error('upsert error:', err)
+                })
+        }
     }
 
     /**
@@ -888,29 +927,33 @@ export const saveToVaporCoreDB = async (
     userId: string | null,
     processStepId: string | null,
     selectedFormId: string | null,
+    setSelectedFormId?: (id: string) => void,
+    handleFormSelect?: (form: FormEntry) => void,
 ): Promise<void> => {
     if (!userId || !processStepId) {
         console.warn('Missing userId or processStepId in saveToVaporCoreDB')
         return
     }
-
-    const formId = selectedFormId || localStorage.getItem('form_id')
+    let formId = selectedFormId
 
     const formData = {
         user_id: userId,
         process_step_id: processStepId,
-        form_data: window.docData || {},
+        form_data: window.docDataMap?.[formId!] || {},
     }
 
-    console.log('window', window)
+    console.log('Saving form to RDS:', {
+        url: `http://localhost:5000/api/quality-install/${formId}`,
+        payload: formData,
+    })
 
-    console.log('FORMDATA', formData.form_data)
+    console.log(window)
 
     try {
         let response: Response
 
         if (formId) {
-            // Update existing
+            // Update existing form
             response = await fetch(
                 `http://localhost:5000/api/quality-install/${formId}`,
                 {
@@ -923,7 +966,7 @@ export const saveToVaporCoreDB = async (
                 },
             )
         } else {
-            // Create new
+            // Create new form
             response = await fetch(
                 'http://localhost:5000/api/quality-install',
                 {
@@ -935,16 +978,26 @@ export const saveToVaporCoreDB = async (
                     body: JSON.stringify(formData),
                 },
             )
-        }
 
-        const data = await response.json()
-        console.log('Save to RDS result:', data)
+            const data = await response.json()
+            const formId = data.form_data_id as string
+            localStorage.setItem('form_id', formId)
 
-        // Store form_id if newly created
-        if (!formId && data.form_data_id) {
-            localStorage.setItem('form_id', data.form_data_id)
+            if (setSelectedFormId && handleFormSelect) {
+                const newEntry: FormEntry = {
+                    id: formId,
+                    user_id: userId!,
+                    process_step_id: processStepId!,
+                    form_data: formData.form_data,
+                    created_at: new Date().toISOString(),
+                    updated_at: null,
+                }
+
+                setSelectedFormId(formId)
+                handleFormSelect(newEntry)
+            }
         }
     } catch (error) {
-        console.error('Error auto-saving to RDS:', error)
+        console.error('Error saving to RDS:', error)
     }
 }
