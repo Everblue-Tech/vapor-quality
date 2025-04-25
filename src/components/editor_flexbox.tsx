@@ -135,6 +135,14 @@ const EditorFlexBox: FC = () => {
             workflowName=""
             docName={''}
             type={''}
+            userId={''}
+            applicationId={''}
+            processId={''}
+            processStepId={''}
+            selectedFormId={''}
+            setSelectedFormId={() => ''}
+            handleFormSelect={() => ''}
+            formEntries={[]}
         >
             <StoreContext.Consumer>
                 {({ data }) => {

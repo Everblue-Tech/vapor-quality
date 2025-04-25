@@ -12,7 +12,13 @@ import { useNavigate } from 'react-router-dom'
 import { deleteEmptyProjects, useDB } from '../utilities/database_utils'
 import ImportDoc from './import_document_wrapper'
 import ExportDoc from './export_document_wrapper'
-import { FormEntry, saveToVaporCoreDB, StoreContext } from '../components/store'
+import {
+    FormEntry,
+    persistSessionState,
+    saveToVaporCoreDB,
+    StoreContext,
+    StoreProvider,
+} from '../components/store'
 import { getAuthToken } from '../auth/keycloak'
 
 /**
@@ -27,10 +33,15 @@ const Home: FC = () => {
     const [selectedProjectToDelete, setSelectedProjectToDelete] = useState('')
     const [selectedProjectNameToDelete, setSelectedProjectNameToDelete] =
         useState('')
+    // state variables that hold list of entries retrieved from vapor-core for a given process_id and user_id
     const [formEntries, setFormEntries] = useState<FormEntry[]>([])
+    const [userId, setUserId] = useState<string | null>(null)
+    const [applicationId, setApplicationId] = useState<string | null>(null)
+    const [processStepId, setProcessStepId] = useState<string | null>(null)
+    const [processId, setProcessId] = useState<string | null>(null)
     const db = useDB()
-
-    const { setSelectedFormId, handleFormSelect } = useContext(StoreContext)
+    // tracks which one is selected for editing
+    const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
 
     const retrieveProjectInfo = async (): Promise<void> => {
         // Dynamically import the function when needed
@@ -44,30 +55,204 @@ const Home: FC = () => {
         })
     }
 
+    // listen for postMessage from the parent window (vapor-flow) to initialize form metadata
+    useEffect(() => {
+        console.log('[iframe] requesting INIT_FORM_DATA from parent...')
+        window.parent.postMessage({ type: 'REQUEST_INIT_FORM_DATA' }, '*')
+    }, [])
+
+    useEffect(() => {
+        function handleMessage(event: MessageEvent) {
+            if (event.origin !== 'http://localhost:3000') return // need to adjust for dev/prod
+
+            if (event.data?.type === 'INIT_FORM_DATA') {
+                const { user_id, application_id, step_id, process_id } =
+                    event.data.payload
+
+                if (user_id && application_id && step_id && process_id) {
+                    localStorage.setItem('user_id', user_id)
+                    localStorage.setItem('application_id', application_id)
+                    localStorage.setItem('process_step_id', step_id)
+                    localStorage.setItem('process_id', process_id)
+
+                    setUserId(user_id)
+                    setApplicationId(application_id)
+                    setProcessStepId(step_id)
+                    setProcessId(process_id)
+                }
+            }
+        }
+
+        window.addEventListener('message', handleMessage)
+
+        return () => window.removeEventListener('message', handleMessage)
+    }, [])
+
+    async function safePut(db: PouchDB.Database, doc: any) {
+        let tries = 0
+        while (tries < 3) {
+            try {
+                const existing = await db.get(doc._id)
+                const merged = { ...existing, ...doc, _rev: existing._rev }
+
+                await db.put(merged)
+                return { success: true }
+            } catch (err: any) {
+                if (err.status === 404) {
+                    try {
+                        await db.put(doc)
+                        return { success: true }
+                    } catch (putErr: any) {
+                        if (putErr.status === 409) {
+                            console.warn(
+                                `Conflict during initial insert, fetching latest and retrying...`,
+                            )
+                            tries++
+                            continue
+                        } else {
+                            console.error('Error putting doc:', putErr)
+                            return { success: false }
+                        }
+                    }
+                } else if (err.status === 409) {
+                    console.warn(
+                        `Conflict updating doc ${doc._id}, fetching latest and retrying...`,
+                    )
+                    const latestDoc = await db.get(doc._id)
+                    const merged = {
+                        ...latestDoc,
+                        ...doc,
+                        _rev: latestDoc._rev,
+                    }
+                    await db.put(merged)
+                    return { success: true }
+                } else {
+                    console.error('Unhandled error during safePut:', err)
+                    return { success: false }
+                }
+            }
+        }
+        console.error(`Failed to safePut after ${tries} attempts.`)
+        return { success: false }
+    }
+
     useEffect(() => {
         const fetchForms = async () => {
             const userId = localStorage.getItem('user_id')
             const processStepId = localStorage.getItem('process_step_id')
             if (!userId || !processStepId) return
 
-            const response = await fetch(
-                `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
-                {
-                    headers: { Authorization: `Bearer ${getAuthToken()}` },
-                },
-            )
+            try {
+                const response = await fetch(
+                    `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+                    {
+                        headers: { Authorization: `Bearer ${getAuthToken()}` },
+                    },
+                )
 
-            const data = await response.json()
-            if (data.success && Array.isArray(data.forms)) {
-                setFormEntries(data.forms)
-                window.docDataMap = {}
-                data.forms.forEach((form: FormEntry) => {
-                    window.docDataMap[form.id] = form.form_data
-                })
+                const data = await response.json()
+
+                if (data.success && Array.isArray(data.forms)) {
+                    window.docDataMap = {}
+
+                    data.forms.forEach((form: FormEntry) => {
+                        window.docDataMap[form.id] = form.form_data
+                    })
+
+                    const transformed = data.forms.map((form: FormEntry) => ({
+                        _id: form.id,
+                        metadata_: {
+                            doc_name:
+                                form.form_data?.installer?.company_name ||
+                                'Untitled',
+                        },
+                        data_: form.form_data,
+                    }))
+
+                    for (const doc of transformed) {
+                        let inserted = false
+                        let tries = 0
+
+                        while (!inserted && tries < 3) {
+                            try {
+                                const existing = await db.get(doc._id)
+
+                                console.log(
+                                    `Document ${doc._id} already exists, skipping safePut.`,
+                                )
+
+                                inserted = true // Already exists, no need to insert
+                            } catch (err: any) {
+                                if (err.status === 404) {
+                                    try {
+                                        await db.put(doc)
+                                        inserted = true // Inserted successfully
+                                    } catch (putErr: any) {
+                                        if (putErr.status === 409) {
+                                            console.warn(
+                                                `Conflict during initial insert, retrying...`,
+                                            )
+                                            tries++
+                                            continue // Retry
+                                        } else {
+                                            console.error(
+                                                'Error putting doc:',
+                                                putErr,
+                                            )
+                                            inserted = true // Break loop, don't get stuck forever
+                                        }
+                                    }
+                                } else if (err.status === 409) {
+                                    console.warn(
+                                        `Conflict while checking doc existence, retrying...`,
+                                    )
+                                    tries++
+                                    continue
+                                } else {
+                                    console.error(
+                                        'Unexpected error checking doc existence:',
+                                        err,
+                                    )
+                                    inserted = true
+                                }
+                            }
+                        }
+
+                        if (!inserted) {
+                            console.error(
+                                `Failed to insert document ${doc._id} after ${tries} attempts.`,
+                            )
+                        }
+                    }
+
+                    // now update UI state
+                    setFormEntries(data.forms)
+                    setProjectList(transformed)
+                }
+            } catch (error) {
+                console.error('Error fetching or inserting forms:', error)
             }
         }
 
         fetchForms()
+    }, [userId, processStepId])
+
+    // persist session state to localStorage whenever metadata changes - helps retain values across navigation/refreshes
+    useEffect(() => {
+        persistSessionState({ userId, applicationId, processId, processStepId })
+    }, [userId, applicationId, processId, processStepId])
+
+    // hydrate session state from localStorage on component mount - restore user context after navigating away/reloading
+    useEffect(() => {
+        const savedUserId = localStorage.getItem('user_id')
+        const savedApplicationId = localStorage.getItem('application_id')
+        const savedProcessId = localStorage.getItem('process_id')
+        const savedProcessStepId = localStorage.getItem('process_step_id')
+
+        if (savedUserId) setUserId(savedUserId)
+        if (savedApplicationId) setApplicationId(savedApplicationId)
+        if (savedProcessId) setProcessId(savedProcessId)
+        if (savedProcessStepId) setProcessStepId(savedProcessStepId)
     }, [])
 
     useEffect(() => {
@@ -75,51 +260,69 @@ const Home: FC = () => {
     }, [])
 
     useEffect(() => {
+        if (!db) return
         retrieveProjectInfo()
-    }, [projectList]) // Fetch the project details from DB as the state variable projectList is updated
+    }, [db]) // Fetch the project details from DB as the state variable projectList is updated
+
+    const handleFormSelect = (form: FormEntry | null) => {
+        if (!window.docDataMap) window.docDataMap = {}
+
+        if (form) {
+            setSelectedFormId(form.id)
+            localStorage.setItem('form_id', form.id)
+
+            // store form data in a form-specific map
+            window.docDataMap[form.id] = form.form_data
+            window.docData = form.form_data
+
+            console.log(`Selected form: ${form.id}`)
+        } else {
+            setSelectedFormId(null)
+            localStorage.removeItem('form_id')
+            window.docData = {}
+            console.warn('Deselected form or selected form was null')
+        }
+    }
 
     const handleAddJob = async () => {
         const { putNewProject } = await import('../utilities/database_utils')
-        const updatedDBDoc: any = await putNewProject(db, '', '')
 
-        // Clear previous selection
-        localStorage.removeItem('form_id')
-        window.docData = {}
+        const formId = crypto.randomUUID()
+        localStorage.setItem('form_id', formId)
+        setSelectedFormId(formId)
 
-        const userId = localStorage.getItem('user_id')
-        const processStepId = localStorage.getItem('process_step_id')
-
-        if (!userId || !processStepId) {
-            console.error(
-                'Missing user_id or process_step_id when creating new form',
-            )
-            return
+        // initialize basic empty form fields
+        window.docData = {
+            location: {
+                city: '',
+                state: '',
+                zip_code: '',
+                street_address: '',
+            },
+            installer: {
+                name: '',
+                email: '',
+                phone: '',
+                company_name: '',
+                mailing_address: '',
+            },
         }
+        window.docDataMap = window.docDataMap || {}
+        window.docDataMap[formId] = window.docData
 
-        // Save to vapor-core DB (this will create and set formId)
-        await saveToVaporCoreDB(
-            userId,
-            processStepId,
-            null, // no selectedFormId, so it will create a new one
-            setSelectedFormId,
-            handleFormSelect,
-        )
-
-        await retrieveProjectInfo()
-
-        // associate the correct form_id when rendering project list/reselecting project to edit
-        if (updatedDBDoc) {
-            const formId = localStorage.getItem('form_id')
-            if (formId) {
-                const updatedProjectDoc = await db.get(updatedDBDoc.id)
-                updatedProjectDoc.metadata_ = {
-                    ...(updatedProjectDoc.metadata_ || {}),
-                    form_id: formId,
+        const newProjectDoc = await putNewProject(db, '', formId)
+        if (newProjectDoc) {
+            await db.upsert(newProjectDoc.id, (doc: any) => {
+                return {
+                    ...doc,
+                    metadata_: {
+                        ...(doc.metadata_ || {}),
+                        form_id: formId,
+                    },
                 }
-                await db.put(updatedProjectDoc)
-            }
-
-            editAddressDetails(updatedDBDoc.id)
+            })
+            await retrieveProjectInfo()
+            editAddressDetailsDirect(newProjectDoc.id, formId)
         }
     }
 
@@ -130,31 +333,56 @@ const Home: FC = () => {
 
     const confirmDeleteJob = async () => {
         try {
-            // delete the selected project
-            const projectDoc: any = await db.get(selectedProjectToDelete)
-
-            const installDocs: any = await db.allDocs({
-                keys: projectDoc.children,
-                include_docs: true,
-            })
-
-            // Filter jobs/installations linked to the projects and mark for deletion
-            const docsToDelete: any = installDocs.rows
-                .filter((row: { doc: any }) => !!row.doc) // Filter out rows without a document
-                .map((row: { doc: { _id: any; _rev: any } }) => ({
-                    _deleted: true,
-                    _id: row.doc?._id,
-                    _rev: row.doc?._rev,
-                }))
-
-            // performing bulk delete of jobs/installation doc
-            if (docsToDelete.length > 0) {
-                const deleteResult = await db.bulkDocs(docsToDelete)
+            if (!selectedProjectToDelete) {
+                console.warn('No project selected to delete.')
+                return
             }
-            // Deleting the project document
-            await db.remove(projectDoc)
 
-            //Refresh the project list after deletion
+            // Delete from vapor-core DB
+            const response = await fetch(
+                `http://localhost:5000/api/quality-install/${selectedProjectToDelete}`,
+                {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${getAuthToken()}` },
+                },
+            )
+
+            if (!response.ok) {
+                console.error('Failed to delete form from backend')
+            }
+
+            console.log('Deleted form from backend successfully')
+
+            // Safely try to get and delete from local pouchDB
+            try {
+                const projectDoc: any = await db.get(selectedProjectToDelete)
+
+                if (projectDoc?.children?.length) {
+                    const installDocs: any = await db.allDocs({
+                        keys: projectDoc.children,
+                        include_docs: true,
+                    })
+
+                    const docsToDelete: any = installDocs.rows
+                        .filter((row: { doc: any }) => !!row.doc)
+                        .map((row: { doc: { _id: any; _rev: any } }) => ({
+                            _deleted: true,
+                            _id: row.doc?._id,
+                            _rev: row.doc?._rev,
+                        }))
+
+                    if (docsToDelete.length > 0) {
+                        await db.bulkDocs(docsToDelete)
+                    }
+                }
+
+                // Delete the project doc itself
+                const latestDoc = await db.get(selectedProjectToDelete)
+                await db.remove(latestDoc)
+            } catch (err) {
+                console.warn('Error deleting from local PouchDB:', err)
+            }
+
             await retrieveProjectInfo()
         } catch (error) {
             console.error('Error deleting project doc:', error)
@@ -195,6 +423,29 @@ const Home: FC = () => {
     const cancelDeleteJob = () => {
         setShowDeleteConfirmation(false)
         setSelectedProjectToDelete('')
+    }
+
+    const editAddressDetailsDirect = (projectID: string, formId: string) => {
+        console.log(
+            'Direct navigation to projectID:',
+            projectID,
+            'with formId:',
+            formId,
+        )
+
+        // Directly create a fake "FormEntry" so you don't depend on projectList or formEntries
+        const selectedForm: FormEntry = {
+            id: formId,
+            user_id: userId!,
+            process_step_id: processStepId!,
+            form_data: window.docData,
+            created_at: new Date().toISOString(),
+            updated_at: null,
+        }
+
+        localStorage.setItem('form_id', formId)
+        handleFormSelect(selectedForm)
+        navigate('app/' + projectID, { replace: true })
     }
 
     const editAddressDetails = (projectID: string) => {
@@ -284,92 +535,116 @@ const Home: FC = () => {
                   </div>
               ))
 
-    return (
-        <>
-            <div>
-                {Object.keys(projectList).length == 0 && (
-                    <center>
-                        <br />
-                        <p className="welcome-header">
-                            Welcome to the Quality Install Tool
-                        </p>
-                        <br />
-                        <p className="welcome-content">
-                            With this tool you will be able <br /> to easily
-                            take photos and document <br />
-                            your entire installation project. <br />
+    return projectList.length > 0 || selectedProjectToDelete ? (
+        <StoreProvider
+            dbName="db"
+            docId={selectedProjectToDelete || projectList[0]._id}
+            workflowName=""
+            docName={
+                selectedProjectToDelete
+                    ? projectList.find(p => p._id === selectedProjectToDelete)
+                          ?.metadata_?.doc_name || ''
+                    : projectList[0]?.metadata_?.doc_name || ''
+            }
+            type="project"
+            parentId={undefined}
+            userId={userId}
+            applicationId={applicationId}
+            processId={processId}
+            processStepId={processStepId}
+            selectedFormId={selectedFormId}
+            setSelectedFormId={setSelectedFormId}
+            handleFormSelect={handleFormSelect}
+            formEntries={formEntries}
+        >
+            <>
+                <div>
+                    {Object.keys(projectList).length == 0 && (
+                        <center>
                             <br />
+                            <p className="welcome-header">
+                                Welcome to the Quality Install Tool
+                            </p>
                             <br />
-                            For your records
-                            <br />
-                            For your clients
-                            <br />
-                            For quality assurance reporting
-                        </p>
-                        <div className="button-container-center" key={0}>
-                            <Button
-                                onClick={handleAddJob}
-                                alt-text="Add a New Project"
-                            >
-                                Add a New Project
-                            </Button>
-                            <ImportDoc
-                                id="project_json"
-                                label="Import a Project"
-                            />
+                            <p className="welcome-content">
+                                With this tool you will be able <br /> to easily
+                                take photos and document <br />
+                                your entire installation project. <br />
+                                <br />
+                                <br />
+                                For your records
+                                <br />
+                                For your clients
+                                <br />
+                                For quality assurance reporting
+                            </p>
+                            <div className="button-container-center" key={0}>
+                                <Button
+                                    onClick={handleAddJob}
+                                    alt-text="Add a New Project"
+                                >
+                                    Add a New Project
+                                </Button>
+                                <ImportDoc
+                                    id="project_json"
+                                    label="Import a Project"
+                                />
+                            </div>
+                        </center>
+                    )}
+                    {Object.keys(projectList).length > 0 && (
+                        <div>
+                            <div className="align-right padding">
+                                <Button
+                                    onClick={handleAddJob}
+                                    alt-text="Add a New Project"
+                                >
+                                    Add a New Project
+                                </Button>
+                                <ImportDoc
+                                    id="project_json"
+                                    label="Import Project"
+                                />
+                            </div>
+                            {projects_display}
                         </div>
-                    </center>
-                )}
-                {Object.keys(projectList).length > 0 && (
-                    <div>
-                        <div className="align-right padding">
-                            <Button
-                                onClick={handleAddJob}
-                                alt-text="Add a New Project"
-                            >
-                                Add a New Project
-                            </Button>
-                            <ImportDoc
-                                id="project_json"
-                                label="Import Project"
-                            />
-                        </div>
-                        {projects_display}
-                    </div>
-                )}
-            </div>
-            <br />
-            <center>
-                <p className="welcome-content">
-                    <br />
-                    Click here to learn more about the{' '}
-                    <a
-                        href="https://www.pnnl.gov/projects/quality-install-tool"
-                        target="_blank"
-                    >
-                        Quality Install Tool
-                    </a>
-                </p>
-            </center>
-            <Modal show={showDeleteConfirmation} onHide={cancelDeleteJob}>
-                <Modal.Header closeButton>
-                    <Modal.Title>Confirm Delete</Modal.Title>
-                </Modal.Header>
-                <Modal.Body>
-                    Are you sure you want to permanently delete{' '}
-                    <b>{selectedProjectNameToDelete}</b>? This action cannot be
-                    undone.
-                </Modal.Body>
-                <Modal.Footer>
-                    <Button variant="secondary" onClick={cancelDeleteJob}>
-                        Cancel
-                    </Button>
-                    <Button variant="danger" onClick={confirmDeleteJob}>
-                        Permanently Delete
-                    </Button>
-                </Modal.Footer>
-            </Modal>
-        </>
+                    )}
+                </div>
+                <br />
+                <center>
+                    <p className="welcome-content">
+                        <br />
+                        Click here to learn more about the{' '}
+                        <a
+                            href="https://www.pnnl.gov/projects/quality-install-tool"
+                            target="_blank"
+                        >
+                            Quality Install Tool
+                        </a>
+                    </p>
+                </center>
+                <Modal show={showDeleteConfirmation} onHide={cancelDeleteJob}>
+                    <Modal.Header closeButton>
+                        <Modal.Title>Confirm Delete</Modal.Title>
+                    </Modal.Header>
+                    <Modal.Body>
+                        Are you sure you want to permanently delete{' '}
+                        <b>{selectedProjectNameToDelete}</b>? This action cannot
+                        be undone.
+                    </Modal.Body>
+                    <Modal.Footer>
+                        <Button variant="secondary" onClick={cancelDeleteJob}>
+                            Cancel
+                        </Button>
+                        <Button variant="danger" onClick={confirmDeleteJob}>
+                            Permanently Delete
+                        </Button>
+                    </Modal.Footer>
+                </Modal>
+            </>
+        </StoreProvider>
+    ) : (
+        <div>Loading...</div>
     )
 }
 

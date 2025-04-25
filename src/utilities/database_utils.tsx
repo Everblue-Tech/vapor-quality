@@ -67,17 +67,21 @@ export async function putNewDoc(
     if (docId) {
         try {
             // Check if the document exists
-            const doc = await db.get(docId)
-            return doc // Document exists, returns the doc
+            const existingDoc = await db.get(docId)
+            console.log(
+                `putNewDoc: Document ${docId} already exists, skipping put.`,
+            )
+            return existingDoc // ✅ EXIT EARLY here
         } catch (err: any) {
             if (err.status !== 404) {
-                // other errors
                 console.error('putNewDoc: Error retrieving document:', err)
+                throw err
             }
+            // if 404, continue to create the doc
         }
     }
 
-    // Document does not exist, continue to insert it
+    // Only if not existing, insert a new document
     const newDoc = {
         _id: docId || crypto.randomUUID(),
         type: type,
@@ -91,12 +95,11 @@ export async function putNewDoc(
         },
         children: [],
     }
-
-    try {
-        return db.put(newDoc)
-    } catch (err) {
-        console.error('putNewDoc: Error inserting document:', err)
-    }
+    const insertedDoc = await db.upsert(newDoc._id, (oldDoc: any) => ({
+        ...oldDoc,
+        ...newDoc,
+    }))
+    return insertedDoc
 }
 
 /**
@@ -451,12 +454,16 @@ export async function ImportDocumentIntoDB(
         updated_doc.metadata_.created_at = now
         updated_doc.metadata_.last_modified_at = now
 
-        const result = await db.post(input_doc)
         // create a lis of the installationIds and set projectId based on document type
-        if (updated_doc.type === 'installation') {
-            installationIds.push(result.id)
-        } else {
-            projectId = result.id
+        try {
+            const result = await db.post(input_doc)
+            if (updated_doc.type === 'installation') {
+                installationIds.push(result.id)
+            } else {
+                projectId = result.id
+            }
+        } catch (err) {
+            console.error('Error posting imported doc:', err)
         }
     }
     // Update the imported project with the newly created installation IDs

@@ -84,6 +84,14 @@ interface StoreProviderProps {
     docName: string
     type: string
     parentId?: string | undefined
+    userId: string | null
+    applicationId: string | null
+    processId: string | null
+    processStepId: string | null
+    selectedFormId: string | null
+    setSelectedFormId: React.Dispatch<React.SetStateAction<string | null>>
+    handleFormSelect: (form: FormEntry | null) => void
+    formEntries: FormEntry[]
 }
 
 export type FormEntry = {
@@ -110,6 +118,14 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     docName,
     type,
     parentId,
+    userId,
+    applicationId,
+    processId,
+    processStepId,
+    selectedFormId,
+    setSelectedFormId,
+    handleFormSelect,
+    formEntries,
 }) => {
     // ensure docDataMap is always initialized
     if (typeof window !== 'undefined' && !window.docDataMap) {
@@ -132,143 +148,11 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     // Increase the maximum number of listeners for all EventEmitters
     EventEmitter.defaultMaxListeners = 20
 
-    const [userId, setUserId] = useState<string | null>(null)
-    const [applicationId, setApplicationId] = useState<string | null>(null)
-    const [processStepId, setProcessStepId] = useState<string | null>(null)
-    const [processId, setProcessId] = useState<string | null>(null)
-
-    // state variables that hold list of entries retrieved from vapor-core for a given process_id and user_id
-    const [formEntries, setFormEntries] = useState<FormEntry[]>([])
-    // tracks which one is selected for editing
-    const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
     const selectedFormIdRef = useRef<string | null>(null)
 
     useEffect(() => {
         selectedFormIdRef.current = selectedFormId
     }, [selectedFormId])
-
-    const handleFormSelect = (form: FormEntry | null) => {
-        if (!window.docDataMap) window.docDataMap = {}
-
-        if (form) {
-            setSelectedFormId(form.id)
-            localStorage.setItem('form_id', form.id)
-
-            // store form data in a form-specific map
-            window.docDataMap[form.id] = form.form_data
-            window.docData = form.form_data
-
-            console.log(`Selected form: ${form.id}`)
-        } else {
-            setSelectedFormId(null)
-            localStorage.removeItem('form_id')
-            window.docData = {}
-            console.warn('Deselected form or selected form was null')
-        }
-    }
-
-    console.log('STORE PROVIDER', userId)
-    console.log('STORE PROVIDER 2', applicationId, processStepId, processId)
-
-    // listen for postMessage from the parent window (vapor-flow) to initialize form metadata
-    useEffect(() => {
-        function handleMessage(event: MessageEvent) {
-            // ensure message is from trusted origin - UPDATE TO ENV VAR FOR DEV/PROD
-            if (event.origin !== 'http://localhost:3000') return
-
-            if (event.data?.type === 'INIT_FORM_DATA') {
-                const { user_id, application_id, step_id, process_id } =
-                    event.data.payload
-
-                // set state only if all required fields are present
-                if (user_id && application_id && step_id && process_id) {
-                    console.log('Received from parent:', {
-                        user_id,
-                        application_id,
-                        step_id,
-                        process_id,
-                    })
-
-                    setUserId(user_id)
-                    setApplicationId(application_id)
-                    setProcessStepId(step_id)
-                    setProcessId(process_id)
-                } else {
-                    console.warn(
-                        'Received incomplete form metadata, ignoring:',
-                        event.data.payload,
-                    )
-                }
-            }
-        }
-
-        window.addEventListener('message', handleMessage)
-        return () => window.removeEventListener('message', handleMessage)
-    }, [])
-
-    // fetch form data from backend if userId and processStepId are set. If not found, create a new quality install form entry.
-    useEffect(() => {
-        if (!userId || !processStepId) return
-
-        fetch(
-            `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
-            {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${getAuthToken()}` },
-            },
-        )
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && Array.isArray(data.forms)) {
-                    console.log('Forms from RDS:', data.forms)
-                    setFormEntries(data.forms)
-
-                    const storedFormId = localStorage.getItem('form_id')
-                    window.docDataMap = {}
-                    data.forms.forEach((form: FormEntry) => {
-                        window.docDataMap[form.id] = form.form_data
-                    })
-                    const matchingForm = data.forms.find(
-                        (form: FormEntry) => form.id === storedFormId,
-                    )
-
-                    if (matchingForm) {
-                        setSelectedFormId(matchingForm.id)
-                        window.docData = matchingForm.form_data
-                        localStorage.setItem('form_id', matchingForm.id)
-                    } else {
-                        console.warn(
-                            `Stored form_id ${storedFormId} not found in fetched forms`,
-                        )
-                        // clear stale ID
-                        localStorage.removeItem('form_id')
-                    }
-                } else {
-                    console.warn('No forms found or fetch failed')
-                }
-            })
-            .catch(error => {
-                console.error('Error fetching form data list:', error)
-            })
-    }, [userId, processStepId])
-
-    // persist session state to localStorage whenever metadata changes - helps retain values across navigation/refreshes
-    useEffect(() => {
-        persistSessionState({ userId, applicationId, processId, processStepId })
-    }, [userId, applicationId, processId, processStepId])
-
-    // hydrate session state from localStorage on component mount - restore user context after navigating away/reloading
-    useEffect(() => {
-        const savedUserId = localStorage.getItem('user_id')
-        const savedApplicationId = localStorage.getItem('application_id')
-        const savedProcessId = localStorage.getItem('process_id')
-        const savedProcessStepId = localStorage.getItem('process_step_id')
-
-        if (savedUserId) setUserId(savedUserId)
-        if (savedApplicationId) setApplicationId(savedApplicationId)
-        if (savedProcessId) setProcessId(savedProcessId)
-        if (savedProcessStepId) setProcessStepId(savedProcessStepId)
-    }, [])
 
     /**
      * Updates component state based on a database document change
@@ -362,21 +246,38 @@ export const StoreProvider: FC<StoreProviderProps> = ({
          */
         ;(async function connectStoreToDB() {
             try {
-                // Initialize the DB document as needed
-                const result = !isInstallationDoc
-                    ? ((await putNewProject(db, docName, docId)) as unknown)
-                    : ((await putNewInstallation(
-                          db,
-                          docId,
-                          workflowName,
-                          docName,
-                          parentId as string,
-                      )) as unknown)
-                revisionRef.current = (result as PouchDB.Core.Response).rev
-            } catch (err) {
-                console.error('DB initialization error:', err)
-                // TODO: Rethink how best to handle errors
+                // Check if the doc already exists before trying to create it
+                const existingDoc = await db.get(docId)
+                revisionRef.current = existingDoc._rev
+            } catch (err: any) {
+                if (err.status === 404) {
+                    // Only create the doc if it doesn't exist
+                    const result = !isInstallationDoc
+                        ? await putNewProject(db, docName, docId)
+                        : await putNewInstallation(
+                              db,
+                              docId,
+                              workflowName,
+                              docName,
+                              parentId as string,
+                          )
+
+                    if (
+                        result &&
+                        typeof result === 'object' &&
+                        'rev' in result &&
+                        typeof result.rev === 'string'
+                    ) {
+                        revisionRef.current = result.rev
+                    } else {
+                        console.warn(
+                            'Unexpected result from document creation:',
+                            result,
+                        )
+                    }
+                }
             }
+
             // Initialize doc and attachments state from the DB document
             try {
                 const dbDoc = await db.get(docId)
@@ -927,6 +828,7 @@ export const saveToVaporCoreDB = async (
     userId: string | null,
     processStepId: string | null,
     selectedFormId: string | null,
+    form_data: any,
     setSelectedFormId?: (id: string) => void,
     handleFormSelect?: (form: FormEntry) => void,
 ): Promise<void> => {
@@ -934,39 +836,67 @@ export const saveToVaporCoreDB = async (
         console.warn('Missing userId or processStepId in saveToVaporCoreDB')
         return
     }
+
     let formId = selectedFormId
+
+    console.log('INSIDE SAVE TO VAPOR CORE DB', window.docData)
 
     const formData = {
         user_id: userId,
         process_step_id: processStepId,
-        form_data: window.docDataMap?.[formId!] || {},
+        form_data: form_data,
     }
-
-    console.log('Saving form to RDS:', {
-        url: `http://localhost:5000/api/quality-install/${formId}`,
-        payload: formData,
-    })
-
-    console.log(window)
 
     try {
         let response: Response
 
         if (formId) {
-            // Update existing form
-            response = await fetch(
-                `http://localhost:5000/api/quality-install/${formId}`,
-                {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${getAuthToken()}`,
+            try {
+                const response = await fetch(
+                    `http://localhost:5000/api/quality-install/${formId}`,
+                    {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${getAuthToken()}`,
+                        },
+                        body: JSON.stringify(formData),
                     },
-                    body: JSON.stringify(formData),
-                },
-            )
+                )
+
+                if (response.status === 404) {
+                    console.warn(
+                        `Form with id ${formId} not found. Attempting to create.`,
+                    )
+                    // Try POST to create it
+                    const createResponse = await fetch(
+                        `http://localhost:5000/api/quality-install`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                Authorization: `Bearer ${getAuthToken()}`,
+                            },
+                            body: JSON.stringify({
+                                id: formId,
+                                ...formData,
+                            }),
+                        },
+                    )
+                    if (!createResponse.ok) {
+                        throw new Error(
+                            `Failed to create form with id ${formId}`,
+                        )
+                    }
+                } else if (!response.ok) {
+                    throw new Error(`Failed to update form with id ${formId}`)
+                }
+            } catch (error) {
+                console.error('Error saving to Vapor Core DB:', error)
+                throw error
+            }
         } else {
-            // Create new form
+            // no formId, create a new one
             response = await fetch(
                 'http://localhost:5000/api/quality-install',
                 {
@@ -980,7 +910,7 @@ export const saveToVaporCoreDB = async (
             )
 
             const data = await response.json()
-            const formId = data.form_data_id as string
+            formId = data.form_data_id as string
             localStorage.setItem('form_id', formId)
 
             if (setSelectedFormId && handleFormSelect) {

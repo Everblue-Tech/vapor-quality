@@ -37,11 +37,6 @@ const SaveCancelButtonWrapper: FC<SaveCancelButtonWrapperProps> = ({
                         }
                         value={get(metadata, path)}
                         doc_status={metadata_val?.status}
-                        userId={userId}
-                        applicationId={applicationId}
-                        processId={processId}
-                        processStepId={processStepId}
-                        selectedFormId={selectedFormId}
                     />
                 )
             }}

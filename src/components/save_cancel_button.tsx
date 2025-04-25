@@ -15,11 +15,6 @@ interface SaveCancelButtonProps {
     value: string
     updateValue: (inputValue: string) => void
     doc_status: string
-    userId: string | null
-    applicationId: string | null
-    processId: string | null
-    processStepId: string | null
-    selectedFormId: string | null
 }
 
 /**
@@ -40,10 +35,6 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     value,
     updateValue,
     doc_status,
-    userId,
-    applicationId,
-    processStepId,
-    selectedFormId,
 }) => {
     const navigate = useNavigate()
     const [disableSave, setDisableSave] = useState<boolean>(true)
@@ -73,20 +64,30 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 return
             }
 
-            const resolvedFormId =
-                selectedFormId || localStorage.getItem('form_id')
+            const resolvedFormId = localStorage.getItem('form_id')
 
-            console.log('selectedFormId', selectedFormId)
+            console.log('HANDLE SAVE 1', resolvedFormId)
 
-            if (!resolvedFormId) {
-                alert('Form ID is not available yet. Please wait a moment.')
+            if (!window.docData || Object.keys(window.docData).length === 0) {
+                alert(
+                    'Cannot save an empty form. Please fill out some fields first.',
+                )
                 return
             }
 
+            console.log('HANDLE SAVE 2', window.docData)
+
+            const user_id = localStorage.getItem('user_id')
+            const process_step_id = localStorage.getItem('process_step_id')
+
+            console.log('user_id', user_id)
+            console.log('process_step_id', process_step_id)
+
             await saveToVaporCoreDB(
-                userId,
-                processStepId,
+                user_id,
+                process_step_id,
                 resolvedFormId,
+                window.docData,
                 setSelectedFormId,
                 handleFormSelect,
             )
