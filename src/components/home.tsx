@@ -57,7 +57,6 @@ const Home: FC = () => {
 
     // listen for postMessage from the parent window (vapor-flow) to initialize form metadata
     useEffect(() => {
-        console.log('[iframe] requesting INIT_FORM_DATA from parent...')
         window.parent.postMessage({ type: 'REQUEST_INIT_FORM_DATA' }, '*')
     }, [])
 
@@ -165,6 +164,7 @@ const Home: FC = () => {
                             doc_name:
                                 form.form_data?.installer?.company_name ||
                                 'Untitled',
+                            form_id: form.id,
                         },
                         data_: form.form_data,
                     }))
@@ -176,10 +176,6 @@ const Home: FC = () => {
                         while (!inserted && tries < 3) {
                             try {
                                 const existing = await db.get(doc._id)
-
-                                console.log(
-                                    `Document ${doc._id} already exists, skipping safePut.`,
-                                )
 
                                 inserted = true // Already exists, no need to insert
                             } catch (err: any) {
@@ -262,7 +258,7 @@ const Home: FC = () => {
     useEffect(() => {
         if (!db) return
         retrieveProjectInfo()
-    }, [db]) // Fetch the project details from DB as the state variable projectList is updated
+    }, [db]) // fetch the project details from DB as the state variable projectList is updated
 
     const handleFormSelect = (form: FormEntry | null) => {
         if (!window.docDataMap) window.docDataMap = {}
@@ -274,8 +270,6 @@ const Home: FC = () => {
             // store form data in a form-specific map
             window.docDataMap[form.id] = form.form_data
             window.docData = form.form_data
-
-            console.log(`Selected form: ${form.id}`)
         } else {
             setSelectedFormId(null)
             localStorage.removeItem('form_id')
@@ -338,6 +332,9 @@ const Home: FC = () => {
                 return
             }
 
+            // Fetch projectDoc once
+            const projectDoc: any = await db.get(selectedProjectToDelete)
+
             // Delete from vapor-core DB
             const response = await fetch(
                 `http://localhost:5000/api/quality-install/${selectedProjectToDelete}`,
@@ -349,41 +346,41 @@ const Home: FC = () => {
 
             if (!response.ok) {
                 console.error('Failed to delete form from backend')
+            } else {
+                console.log('Deleted form from vapor-core successfully')
             }
 
-            console.log('Deleted form from backend successfully')
+            // Delete children first if any
+            if (projectDoc?.children?.length > 0) {
+                const installDocs = await db.allDocs({
+                    keys: projectDoc.children,
+                    include_docs: true,
+                })
 
-            // Safely try to get and delete from local pouchDB
-            try {
-                const projectDoc: any = await db.get(selectedProjectToDelete)
+                const docsToDelete = installDocs.rows
+                    .filter((row: { doc: any }) => !!row.doc)
+                    .map((row: { doc: { _id: any; _rev: any } }) => ({
+                        _id: row.doc._id,
+                        _rev: row.doc._rev,
+                        _deleted: true,
+                    }))
 
-                if (projectDoc?.children?.length) {
-                    const installDocs: any = await db.allDocs({
-                        keys: projectDoc.children,
-                        include_docs: true,
-                    })
-
-                    const docsToDelete: any = installDocs.rows
-                        .filter((row: { doc: any }) => !!row.doc)
-                        .map((row: { doc: { _id: any; _rev: any } }) => ({
-                            _deleted: true,
-                            _id: row.doc?._id,
-                            _rev: row.doc?._rev,
-                        }))
-
-                    if (docsToDelete.length > 0) {
-                        await db.bulkDocs(docsToDelete)
-                    }
+                if (docsToDelete.length > 0) {
+                    console.log(
+                        'Deleting child installation docs:',
+                        docsToDelete,
+                    )
+                    await db.bulkDocs(docsToDelete)
                 }
-
-                // Delete the project doc itself
-                const latestDoc = await db.get(selectedProjectToDelete)
-                await db.remove(latestDoc)
-            } catch (err) {
-                console.warn('Error deleting from local PouchDB:', err)
             }
 
-            await retrieveProjectInfo()
+            // Now delete the project doc itself
+            await db.remove(projectDoc)
+
+            // Optimistically update local project list
+            setProjectList(prev =>
+                prev.filter(p => p._id !== selectedProjectToDelete),
+            )
         } catch (error) {
             console.error('Error deleting project doc:', error)
         } finally {
@@ -426,14 +423,7 @@ const Home: FC = () => {
     }
 
     const editAddressDetailsDirect = (projectID: string, formId: string) => {
-        console.log(
-            'Direct navigation to projectID:',
-            projectID,
-            'with formId:',
-            formId,
-        )
-
-        // Directly create a fake "FormEntry" so you don't depend on projectList or formEntries
+        // directly create a fake "FormEntry" to avoid depending on projectList or formEntries
         const selectedForm: FormEntry = {
             id: formId,
             user_id: userId!,
@@ -448,86 +438,93 @@ const Home: FC = () => {
         navigate('app/' + projectID, { replace: true })
     }
 
-    const editAddressDetails = (projectID: string) => {
+    const editAddressDetails = async (projectID: string) => {
         const matchingProject = projectList.find(
             project => project._id === projectID,
         )
-        console.log('MATCHING PROJECT', matchingProject)
         const formId = matchingProject?.metadata_?.form_id
+
+        if (!formId) {
+            console.error('Form ID not found for project:', projectID)
+            return
+        }
 
         const selectedForm = formEntries.find(form => form.id === formId)
 
-        console.log(formEntries)
-
-        console.log('SELECTEDFORM', selectedForm)
-
         if (selectedForm) {
-            localStorage.setItem('form_id', selectedForm.id)
+            localStorage.setItem('form_id', formId)
+            await new Promise(resolve => setTimeout(resolve, 50)) // small delay to ensure localStorage flushes
             handleFormSelect(selectedForm)
+            setSelectedFormId(formId)
         }
-        navigate('app/' + projectID, { replace: true })
     }
 
     const projects_display =
         Object.keys(projectList).length === 0
             ? []
-            : projectList.map((key, value) => (
-                  <div key={key._id}>
-                      <ListGroup key={key._id} className="padding">
-                          <LinkContainer
-                              key={key}
-                              to={`/app/${key._id}/workflows`}
-                          >
+            : projectList.map(project => (
+                  <div key={project._id}>
+                      <ListGroup className="padding">
+                          <LinkContainer to={`/app/${project._id}/workflows`}>
                               <ListGroup.Item
-                                  key={key._id}
                                   action={true}
-                                  onClick={() => editAddressDetails(key._id)}
+                                  onClick={() =>
+                                      editAddressDetails(project._id)
+                                  }
                               >
                                   <span className="icon-container">
                                       {/* <Menu options={options} /> */}
 
                                       <Button
                                           variant="light"
-                                          onClick={event => {
+                                          onClick={async event => {
                                               event.stopPropagation()
                                               event.preventDefault()
-                                              editAddressDetails(key._id)
+                                              await editAddressDetails(
+                                                  project._id,
+                                              )
+                                              navigate(`/app/${project._id}`)
                                           }}
                                       >
                                           <TfiPencil size={22} />
                                       </Button>
+
                                       <Button
                                           variant="light"
                                           onClick={event =>
-                                              handleDelete(event, key)
+                                              handleDelete(event, project)
                                           }
                                       >
                                           <TfiTrash size={22} />
                                       </Button>
                                       <ExportDoc
-                                          docId={key._id}
-                                          docName={key.metadata_?.doc_name}
+                                          docId={project._id}
+                                          docName={project.metadata_?.doc_name}
                                           includeChild={true}
                                       />
                                   </span>
-                                  <b>{key.metadata_?.doc_name}</b>
-                                  {key.data_?.location?.street_address && (
+                                  <b>{project.metadata_?.doc_name}</b>
+                                  {project.data_?.location?.street_address && (
                                       <>
                                           <br />
-                                          {key.data_?.location?.street_address},
+                                          {
+                                              project.data_?.location
+                                                  ?.street_address
+                                          }
+                                          ,
                                       </>
                                   )}
-                                  {key.data_?.location?.city && (
+                                  {project.data_?.location?.city && (
                                       <>
                                           <br />
-                                          {key.data_?.location?.city},{' '}
+                                          {project.data_?.location?.city},{' '}
                                       </>
                                   )}
-                                  {key.data_.location?.state && (
-                                      <>{key.data_?.location?.state} </>
+                                  {project.data_.location?.state && (
+                                      <>{project.data_?.location?.state} </>
                                   )}
-                                  {key.data_.location?.zip_code && (
-                                      <>{key.data_?.location?.zip_code}</>
+                                  {project.data_.location?.zip_code && (
+                                      <>{project.data_?.location?.zip_code}</>
                                   )}
                               </ListGroup.Item>
                           </LinkContainer>
@@ -538,7 +535,7 @@ const Home: FC = () => {
     return projectList.length > 0 || selectedProjectToDelete ? (
         <StoreProvider
             dbName="db"
-            docId={selectedProjectToDelete || projectList[0]._id}
+            docId={selectedFormId || ''}
             workflowName=""
             docName={
                 selectedProjectToDelete

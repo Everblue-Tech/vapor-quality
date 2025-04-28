@@ -71,7 +71,7 @@ export async function putNewDoc(
             console.log(
                 `putNewDoc: Document ${docId} already exists, skipping put.`,
             )
-            return existingDoc // ✅ EXIT EARLY here
+            return existingDoc // EXIT EARLY here
         } catch (err: any) {
             if (err.status !== 404) {
                 console.error('putNewDoc: Error retrieving document:', err)

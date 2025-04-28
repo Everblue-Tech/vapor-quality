@@ -391,12 +391,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
             window.docDataMap[selectedFormIdRef.current] = newData
         }
 
-        console.log(
-            'Updated docDataMap for',
-            selectedFormIdRef.current,
-            newData,
-        )
-
         if (db != null) {
             db.upsert(docId, function upsertFn(dbDoc: any) {
                 const result = { ...dbDoc, ...updatedDoc }
@@ -741,8 +735,6 @@ function storeNewQualityInstallSubmission(
         },
     }
 
-    console.log(newObject)
-
     localStorage.setItem(localStorageKey, JSON.stringify(newObject))
 }
 
@@ -837,9 +829,7 @@ export const saveToVaporCoreDB = async (
         return
     }
 
-    let formId = selectedFormId
-
-    console.log('INSIDE SAVE TO VAPOR CORE DB', window.docData)
+    let formId = localStorage.getItem('form_id')
 
     const formData = {
         user_id: userId,
