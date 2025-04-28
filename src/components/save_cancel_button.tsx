@@ -43,7 +43,8 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const [buttonLabel, setButtonLabel] = useState<String>('Save Project')
     const db = useDB()
 
-    const { setSelectedFormId, handleFormSelect } = useContext(StoreContext)
+    const { setSelectedFormId, handleFormSelect, s3Config } =
+        useContext(StoreContext)
 
     const handleCancelButtonClick = async (
         event: MouseEvent<HTMLButtonElement>,
@@ -59,14 +60,13 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const handleSaveClick = async () => {
         try {
             const projectDoc: any = await db.get(id)
+
             if (!projectDoc.metadata_ || !projectDoc.metadata_.doc_name) {
                 alert('Please enter a project name before saving.')
                 return
             }
 
             const resolvedFormId = localStorage.getItem('form_id')
-
-            console.log('HANDLE SAVE 1', resolvedFormId)
 
             if (!window.docData || Object.keys(window.docData).length === 0) {
                 alert(
@@ -75,22 +75,30 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 return
             }
 
-            console.log('HANDLE SAVE 2', window.docData)
-
             const user_id = localStorage.getItem('user_id')
             const process_step_id = localStorage.getItem('process_step_id')
 
-            console.log('user_id', user_id)
-            console.log('process_step_id', process_step_id)
+            const attachmentKeys = Object.keys(projectDoc._attachments || {})
+            let fileToUpload: Blob | File | undefined = undefined
+
+            if (attachmentKeys.length > 0) {
+                const attachmentId = attachmentKeys[0]
+                const attachmentBlob = await db.getAttachment(id, attachmentId)
+
+                if (attachmentBlob instanceof Blob) {
+                    fileToUpload = attachmentBlob
+                }
+            }
 
             await saveToVaporCoreDB(
                 user_id,
                 process_step_id,
-                resolvedFormId,
                 window.docData,
                 setSelectedFormId,
                 handleFormSelect,
+                fileToUpload,
             )
+
             updateValue('created')
             navigate('/', { replace: true })
         } catch (error) {

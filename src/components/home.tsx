@@ -21,6 +21,16 @@ import {
 } from '../components/store'
 import { getAuthToken } from '../auth/keycloak'
 
+export interface S3Config {
+    region?: string
+    credentials?: {
+        accessKeyId?: string
+        secretAccessKey?: string
+    }
+    kmsKeyId?: string
+    bucketName?: string
+}
+
 /**
  * Home:  Renders the Home page for the APP
  *
@@ -42,6 +52,8 @@ const Home: FC = () => {
     const db = useDB()
     // tracks which one is selected for editing
     const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
+    // save s3Config to state
+    const [s3Config, setS3Config] = useState<S3Config | null>(null)
 
     const retrieveProjectInfo = async (): Promise<void> => {
         // Dynamically import the function when needed
@@ -65,14 +77,28 @@ const Home: FC = () => {
             if (event.origin !== 'http://localhost:3000') return // need to adjust for dev/prod
 
             if (event.data?.type === 'INIT_FORM_DATA') {
-                const { user_id, application_id, step_id, process_id } =
-                    event.data.payload
+                const {
+                    user_id,
+                    application_id,
+                    step_id,
+                    process_id,
+                    organization_id,
+                    s3Config,
+                } = event.data.payload
 
-                if (user_id && application_id && step_id && process_id) {
+                if (
+                    user_id &&
+                    application_id &&
+                    step_id &&
+                    process_id &&
+                    organization_id &&
+                    s3Config
+                ) {
                     localStorage.setItem('user_id', user_id)
                     localStorage.setItem('application_id', application_id)
                     localStorage.setItem('process_step_id', step_id)
                     localStorage.setItem('process_id', process_id)
+                    localStorage.setItem('organization_id', organization_id)
 
                     setUserId(user_id)
                     setApplicationId(application_id)
@@ -86,54 +112,6 @@ const Home: FC = () => {
 
         return () => window.removeEventListener('message', handleMessage)
     }, [])
-
-    async function safePut(db: PouchDB.Database, doc: any) {
-        let tries = 0
-        while (tries < 3) {
-            try {
-                const existing = await db.get(doc._id)
-                const merged = { ...existing, ...doc, _rev: existing._rev }
-
-                await db.put(merged)
-                return { success: true }
-            } catch (err: any) {
-                if (err.status === 404) {
-                    try {
-                        await db.put(doc)
-                        return { success: true }
-                    } catch (putErr: any) {
-                        if (putErr.status === 409) {
-                            console.warn(
-                                `Conflict during initial insert, fetching latest and retrying...`,
-                            )
-                            tries++
-                            continue
-                        } else {
-                            console.error('Error putting doc:', putErr)
-                            return { success: false }
-                        }
-                    }
-                } else if (err.status === 409) {
-                    console.warn(
-                        `Conflict updating doc ${doc._id}, fetching latest and retrying...`,
-                    )
-                    const latestDoc = await db.get(doc._id)
-                    const merged = {
-                        ...latestDoc,
-                        ...doc,
-                        _rev: latestDoc._rev,
-                    }
-                    await db.put(merged)
-                    return { success: true }
-                } else {
-                    console.error('Unhandled error during safePut:', err)
-                    return { success: false }
-                }
-            }
-        }
-        console.error(`Failed to safePut after ${tries} attempts.`)
-        return { success: false }
-    }
 
     useEffect(() => {
         const fetchForms = async () => {
@@ -553,6 +531,7 @@ const Home: FC = () => {
             setSelectedFormId={setSelectedFormId}
             handleFormSelect={handleFormSelect}
             formEntries={formEntries}
+            s3Config={s3Config}
         >
             <>
                 <div>

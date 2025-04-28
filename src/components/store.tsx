@@ -22,6 +22,8 @@ import {
 import EventEmitter from 'events'
 import { getAuthToken } from '../auth/keycloak'
 import jsPDF from 'jspdf'
+import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
+import { S3Config } from './home'
 
 PouchDB.plugin(PouchDBUpsert)
 
@@ -74,6 +76,7 @@ export const StoreContext = React.createContext({
     >,
     handleFormSelect: (() => {}) as (form: FormEntry) => void,
     formEntries: [] as FormEntry[],
+    s3Config: null as S3Config | null,
 })
 
 interface StoreProviderProps {
@@ -92,6 +95,7 @@ interface StoreProviderProps {
     setSelectedFormId: React.Dispatch<React.SetStateAction<string | null>>
     handleFormSelect: (form: FormEntry | null) => void
     formEntries: FormEntry[]
+    s3Config?: S3Config | null
 }
 
 export type FormEntry = {
@@ -126,6 +130,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     setSelectedFormId,
     handleFormSelect,
     formEntries,
+    s3Config,
 }) => {
     // ensure docDataMap is always initialized
     if (typeof window !== 'undefined' && !window.docDataMap) {
@@ -282,8 +287,15 @@ export const StoreProvider: FC<StoreProviderProps> = ({
             try {
                 const dbDoc = await db.get(docId)
                 processDBDocChange(db, dbDoc)
-            } catch (err) {
-                console.error('Unable to initialize state from DB:', err)
+            } catch (err: any) {
+                if (err.status === 404 || err.name === 'not_found') {
+                    // pouchDB throws a 404 missing error when db.get(docId) is called but docId doesn't exist yet
+                    console.info(
+                        `No existing document found for docId: ${docId}`,
+                    )
+                } else {
+                    console.error('Unable to initialize state from DB:', err)
+                }
             }
 
             // Subscribe to DB document changes
@@ -363,18 +375,20 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     }
 
     /**
-     * Updates (or inserts) data into the data_ property of the doc state by invoking updatedDoc function
+     * Updates (or inserts) a value into the `data_` property of the document state and persists it to the DB.
      *
      * @remarks
-     * This function is typically passed to an input wrapper component via the StoreContext.Provider value
-     * This function calls updateDoc, with the path to "data_" in dbDoc.
+     * This function is typically passed through `StoreContext.Provider` and used by form inputs to update the document.
+     * It prefixes the provided path with `data_.` to ensure updates are scoped to the `data_` field in the document.
+     * It also updates the global `window.docData` and `window.docDataMap` objects for in-memory tracking across sessions.
      *
-     * @param pathStr A string path such as "foo.bar[2].biz" that represents a path into the doc state
-     * @param value The value that is to be updated/inserted
+     * @param pathStr A dot/bracket notation path such as "foo.bar[2].biz" pointing to where the value should be inserted inside `data_`.
+     * @param value The value that is to be updated/inserted at the specified path
      */
 
     const upsertData: UpsertData = (pathStr, value) => {
         pathStr = 'data_.' + pathStr
+        // create updated doc with new value immutably inserted
         const updatedDoc = immutableUpsert(
             doc,
             toPath(pathStr) as NonEmptyArray<string>,
@@ -382,6 +396,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         )
         setDoc(updatedDoc)
 
+        // update global window.docData and window.docDataMap for in-memory access
         const newData = updatedDoc.data_
         window.docData = newData
         if (typeof window !== 'undefined' && selectedFormIdRef.current) {
@@ -391,6 +406,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
             window.docDataMap[selectedFormIdRef.current] = newData
         }
 
+        // persist the updated document to the DB
         if (db != null) {
             db.upsert(docId, function upsertFn(dbDoc: any) {
                 const result = { ...dbDoc, ...updatedDoc }
@@ -571,6 +587,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                 setSelectedFormId,
                 handleFormSelect,
                 formEntries,
+                s3Config: s3Config ?? null,
             }}
         >
             {children}
@@ -816,13 +833,32 @@ export function persistSessionState({
     if (processStepId) localStorage.setItem('process_step_id', processStepId)
 }
 
+/**
+ * Saves or updates the current form data to the vapor-core backend database (Amazon RDS).
+ *
+ * @remarks
+ * If a `form_id` already exists in localStorage, this function attempts to update the existing form by sending a PUT request.
+ * If the form does not exist (404), it automatically tries to create a new one via a POST request.
+ * If no `form_id` exists initially, it creates a new form entry via a POST request and stores the returned `form_id` in localStorage.
+ *
+ * Optionally, after creating a new form, it updates the selected form ID state and calls the `handleFormSelect` callback.
+ * It's "optional" because React UI state updates (setSelectedFormId, handleFormSelect) are only triggered if those callback functions are provided by the caller while the backend save works either way.
+ *
+ * @param userId - the user ID passed into the vapor-quality iframe from vapor-flow
+ * @param processStepId - the process step ID passed into the vapor-quality iframe from vapor-flow
+ * @param form_data - the form data payload to save
+ * @param setSelectedFormId - optional setter function to update the selected form ID in state
+ * @param handleFormSelect - optional functino to select the newly created form entry after creation
+ * @returns
+ */
+
 export const saveToVaporCoreDB = async (
     userId: string | null,
     processStepId: string | null,
-    selectedFormId: string | null,
     form_data: any,
     setSelectedFormId?: (id: string) => void,
     handleFormSelect?: (form: FormEntry) => void,
+    fileToUpload?: Blob | File | null,
 ): Promise<void> => {
     if (!userId || !processStepId) {
         console.warn('Missing userId or processStepId in saveToVaporCoreDB')
@@ -837,7 +873,45 @@ export const saveToVaporCoreDB = async (
         form_data: form_data,
     }
 
+    let uploadedDocumentId
+
+    console.log(fileToUpload)
+
     try {
+        // if file and valid s3Config provided, upload file to s3
+        if (fileToUpload) {
+            try {
+                const organizationId = localStorage.getItem('organization_id')
+                if (!organizationId) {
+                    console.error('Missing organizationId in localStorage')
+                } else {
+                    uploadedDocumentId = await uploadImageToS3AndCreateDocument(
+                        {
+                            file: fileToUpload,
+                            userId,
+                            organizationId,
+                            documentType: 'quality install photo',
+                        },
+                    )
+                    console.log(`Uploaded document ID: ${uploadedDocumentId}`)
+                    if (uploadedDocumentId) {
+                        if (!form_data.documents) {
+                            form_data.documents = []
+                        }
+                        form_data.documents.push({
+                            document_id: uploadedDocumentId,
+                            documentType: 'quality install photo',
+                        })
+                    }
+                }
+            } catch (err) {
+                console.error(
+                    'Failed to upload photo to s3 and create document:',
+                    err,
+                )
+            }
+        }
+
         let response: Response
 
         if (formId) {
