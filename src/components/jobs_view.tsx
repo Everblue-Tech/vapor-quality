@@ -151,12 +151,18 @@ const JobList: React.FC = () => {
             const { putNewInstallation } = await import(
                 '../utilities/database_utils'
             )
-            await putNewInstallation(
+            const response = await putNewInstallation(
                 db,
                 '',
                 workflowName as string,
                 docName,
                 projectId as string,
+            )
+            console.log('RESPONSE', response)
+            const updatedProjectDoc = await db.get(projectId as string)
+            console.log(
+                'Children in project after add:',
+                updatedProjectDoc.children,
             )
         }
         // Refresh the job list after adding the new job

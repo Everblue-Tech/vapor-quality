@@ -217,7 +217,7 @@ export async function retrieveInstallationDocs(
         const allDocs = await db.allDocs({ include_docs: true })
         const installation_ids = allDocs.rows
             .map(row => row.doc as any)
-            .filter(doc => doc.type === 'project' && doc._id === parentId)
+            .filter(doc => doc._id === parentId)
             .flatMap(doc => doc.children || [])
 
         const jobs = allDocs.rows

@@ -7,6 +7,9 @@ import PhotoInput from './photo_input'
 import PhotoMetadata from '../types/photo_metadata.type'
 
 import { getMetadataFromPhoto, photoProperties } from '../utilities/photo_utils'
+import { handleFetchFileFromS3 } from '../utilities/s3_utils'
+import { S3Client } from '@aws-sdk/client-s3'
+import { getAuthToken } from '../auth/keycloak'
 
 interface PhotoInputWrapperProps {
     children: React.ReactNode
@@ -36,6 +39,26 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
 }) => {
     const [loading, setLoading] = useState(false) // Loading state
     const [error, setError] = useState('') // Loading state
+
+    const [s3Photos, setS3Photos] = useState([])
+    const [s3Client, setS3Client] = useState<S3Client | null>(null)
+
+    useEffect(() => {
+        // only initialize s3 client if needed
+        if (!s3Client) {
+            setS3Client(
+                new S3Client({
+                    region: process.env.REACT_APP_AWS_REGION,
+                    credentials: {
+                        accessKeyId:
+                            process.env.REACT_APP_AWS_S3_BUCKET_USER_KEY,
+                        secretAccessKey:
+                            process.env.REACT_APP_AWS_S3_BUCKET_USER_SECRET,
+                    },
+                }),
+            )
+        }
+    })
 
     /**
      * Compresses an image file (Blob) while maintaining its aspect ratio and ensuring it does not exceed specified size limits.
