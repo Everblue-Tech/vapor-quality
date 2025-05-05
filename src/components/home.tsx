@@ -42,7 +42,7 @@ const Home: FC = () => {
                     step_id,
                     process_id,
                     organization_id,
-                    s3Config,
+                    measures,
                 } = event.data.payload
 
                 if (
@@ -51,13 +51,14 @@ const Home: FC = () => {
                     step_id &&
                     process_id &&
                     organization_id &&
-                    s3Config
+                    measures
                 ) {
                     localStorage.setItem('user_id', user_id)
                     localStorage.setItem('application_id', application_id)
                     localStorage.setItem('process_step_id', step_id)
                     localStorage.setItem('process_id', process_id)
                     localStorage.setItem('organization_id', organization_id)
+                    localStorage.setItem('measures', JSON.stringify(measures))
 
                     setUserId(user_id)
                     setApplicationId(application_id)

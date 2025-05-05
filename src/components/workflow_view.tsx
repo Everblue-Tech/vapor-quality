@@ -1,7 +1,9 @@
 import { useState, type FC, useEffect } from 'react'
 import { ListGroup, Button } from 'react-bootstrap'
 import { LinkContainer } from 'react-router-bootstrap'
-import templatesConfig from '../templates/templates_config'
+import templatesConfig, {
+    mapMeasuresToTemplateValues,
+} from '../templates/templates_config'
 import {
     retrieveInstallationDocs,
     retrieveProjectSummary,
@@ -22,6 +24,26 @@ const WorkFlowView: FC = () => {
     const { projectId } = useParams()
     const [projectInfo, setProjectInfo] = useState<any>({})
     const db = useDB()
+
+    const [allowedTemplates, setAllowedTemplates] = useState<string[]>([])
+
+    // Load allowed templates based on mapped measure types from vapor-flow
+    useEffect(() => {
+        const measures = localStorage.getItem('measures') || '[]'
+
+        try {
+            const measureNames: string[] = JSON.parse(measures)
+            //normalize measure names
+            const normalized = measureNames.map(m => m.toLowerCase())
+            // map normalized measures to template titles
+            const mappedTitles = mapMeasuresToTemplateValues(normalized)
+            console.log('Allowed templates:', mappedTitles)
+            setAllowedTemplates(mappedTitles)
+        } catch (err) {
+            console.warn('Failed to parse measures from localStorage:', err)
+            setAllowedTemplates([])
+        }
+    }, [])
 
     // Retrieves the installation details with the specific workflow name
     const retrieveJobs = async (workflowName: string): Promise<void> => {
@@ -55,14 +77,18 @@ const WorkFlowView: FC = () => {
     const city = projectInfo?.city ? projectInfo?.city : ''
     const state = projectInfo?.state ? projectInfo?.state : ''
     const zip_code = projectInfo?.zip_code ? projectInfo?.zip_code : ''
-    const templates = Object.keys(templatesConfig).map(key => (
-        <LinkContainer key={key} to={`/app/${projectId}/${key}`}>
-            <ListGroup.Item key={key} action={true}>
-                {templatesConfig[key as keyof typeof templatesConfig].title}{' '}
-                {workflowJobsCount[key] > 0 && `(${workflowJobsCount[key]})`}
-            </ListGroup.Item>
-        </LinkContainer>
-    ))
+    const templates = Object.entries(templatesConfig)
+        .filter(([_, val]) => allowedTemplates.includes(val.title))
+        .map(([key, val]) => (
+            <LinkContainer key={key} to={`/app/${projectId}/${key}`}>
+                <ListGroup.Item action={true}>
+                    {val.title}{' '}
+                    {workflowJobsCount[key] > 0 &&
+                        `(${workflowJobsCount[key]})`}
+                </ListGroup.Item>
+            </LinkContainer>
+        ))
+
     return (
         <div>
             <h1>Choose an Installation Workflow</h1>
