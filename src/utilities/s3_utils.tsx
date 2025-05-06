@@ -14,7 +14,6 @@ export async function fetchDocumentTypes(documentType: string) {
             throw new Error('Failed to fetch document types.')
         }
         const typeData = await response.json()
-        console.log(typeData)
         const documentTypeObject = typeData.data.find(
             (type: { name: string }) =>
                 type.name.toLowerCase() === documentType.toLowerCase(),

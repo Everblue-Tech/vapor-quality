@@ -3,6 +3,8 @@ import print from 'print-js'
 import Button from 'react-bootstrap/Button'
 import jsPDF from 'jspdf'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
+import { exportDocumentAsJSONObject, useDB } from '../utilities/database_utils'
+import { saveToVaporCoreDB } from './store'
 
 interface PrintSectionProps {
     children: ReactNode
@@ -24,7 +26,10 @@ const PrintSection: FC<PrintSectionProps> = ({
     const [isSubmitted, setIsSubmitted] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
 
+    const db = useDB()
+    const docId = localStorage.getItem('selected_doc_id')
     const userId = localStorage.getItem('user_id')
+    const processStepId = localStorage.getItem('process_step_id')
     const organizationId = localStorage.getItem('organization_id')
     const documentType = 'Quality Install Document' // pass this down? not sure yet
 
@@ -77,11 +82,23 @@ const PrintSection: FC<PrintSectionProps> = ({
                     })
 
                     if (documentId) {
-                        alert('Report submitted Successfully!')
-                        setIsSubmitted(true)
+                        console.log('Report uploaded to s3 successfully!')
                     }
                 },
             })
+            const rawExport = await exportDocumentAsJSONObject(db, docId!, true)
+            const jsonExport =
+                typeof rawExport === 'string'
+                    ? JSON.parse(rawExport)
+                    : rawExport
+
+            const response = await saveToVaporCoreDB(
+                userId,
+                processStepId,
+                docId,
+                jsonExport,
+            )
+            console.log(response)
         } catch (error) {
             console.error('Failed to generate and submit report: ', error)
             alert('Submission failed. Please try again.')

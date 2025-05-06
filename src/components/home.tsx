@@ -197,6 +197,12 @@ const Home: FC = () => {
                           <LinkContainer
                               key={key}
                               to={`/app/${key._id}/workflows`}
+                              onClick={() =>
+                                  localStorage.setItem(
+                                      'selected_doc_id',
+                                      key._id,
+                                  )
+                              }
                           >
                               <ListGroup.Item key={key._id} action={true}>
                                   <span className="icon-container">

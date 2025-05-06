@@ -4,9 +4,9 @@ import type { MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDB } from '../utilities/database_utils'
 import {
-    saveProjectAndUploadToS3,
+    // saveProjectAndUploadToS3,
     isFormComplete,
-    autoSaveToRDS,
+    // autoSaveToRDS,
 } from './store'
 
 interface SaveCancelButtonProps {
@@ -60,11 +60,11 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 alert('Please enter a project name before saving.')
                 return
             }
-            if (!projectDoc.data_ || !isFormComplete(projectDoc.data_)) {
-                await autoSaveToRDS()
-            } else {
-                await saveProjectAndUploadToS3(projectDoc)
-            }
+            // if (!projectDoc.data_ || !isFormComplete(projectDoc.data_)) {
+            //     await autoSaveToRDS()
+            // } else {
+            //     await saveProjectAndUploadToS3(projectDoc)
+            // }
             updateValue('created')
             navigate('/', { replace: true })
         } catch (error) {
