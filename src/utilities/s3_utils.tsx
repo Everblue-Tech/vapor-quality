@@ -17,7 +17,7 @@ export async function fetchDocumentTypes(documentType: string) {
         console.log(typeData)
         const documentTypeObject = typeData.data.find(
             (type: { name: string }) =>
-                type.name.toLowerCase() === documentType,
+                type.name.toLowerCase() === documentType.toLowerCase(),
         )
         if (documentTypeObject) {
             return documentTypeObject.id
@@ -36,8 +36,8 @@ export async function uploadImageToS3AndCreateDocument({
     documentType,
 }: {
     file: File | Blob
-    userId: string
-    organizationId: string
+    userId: string | null
+    organizationId: string | null
     documentType: string
 }) {
     if (!file) throw new Error('No file provided')
@@ -66,17 +66,18 @@ export async function uploadImageToS3AndCreateDocument({
             ? file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
             : `upload_${Date.now()}`
 
-    const s3Key = `quality-install/photos/${Date.now()}_${sanitizedFileName}`
+    const s3Key = `quality-install/documents/${Date.now()}_${sanitizedFileName}`
 
     const putObjectCommand = new PutObjectCommand({
         Bucket: process.env.REACT_APP_AWS_S3_BUCKET,
         Key: s3Key,
         Body: new Uint8Array(await file.arrayBuffer()),
-        ContentType: sanitizedFileName.toLowerCase().endsWith('pdf')
-            ? 'application/pdf'
-            : sanitizedFileName.toLowerCase().endsWith('svg')
-              ? 'image/svg+xml'
-              : 'image/jpeg',
+        ContentType:
+            file instanceof File && file.type
+                ? file.type
+                : file instanceof Blob && file.type
+                  ? file.type
+                  : 'application/octet-stream',
         ServerSideEncryption: 'aws:kms',
         SSEKMSKeyId: process.env.REACT_APP_AWS_S3_KMS_KEY_ID,
     })
