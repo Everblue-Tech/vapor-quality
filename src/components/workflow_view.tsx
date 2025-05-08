@@ -79,15 +79,35 @@ const WorkFlowView: FC = () => {
     const zip_code = projectInfo?.zip_code ? projectInfo?.zip_code : ''
     const templates = Object.entries(templatesConfig)
         .filter(([_, val]) => allowedTemplates.includes(val.title))
-        .map(([key, val]) => (
-            <LinkContainer key={key} to={`/app/${projectId}/${key}`}>
-                <ListGroup.Item action={true}>
-                    {val.title}{' '}
-                    {workflowJobsCount[key] > 0 &&
-                        `(${workflowJobsCount[key]})`}
-                </ListGroup.Item>
-            </LinkContainer>
-        ))
+        .flatMap(([key, val]) => {
+            const jobCount = workflowJobsCount[key] || 0
+
+            // no jobs: show just the workflow
+            if (jobCount === 0) {
+                return [
+                    <LinkContainer
+                        key={`${key}-0`}
+                        to={`/app/${projectId}/${key}/0`}
+                    >
+                        <ListGroup.Item action={true}>
+                            {val.title}
+                        </ListGroup.Item>
+                    </LinkContainer>,
+                ]
+            }
+
+            // one or more jobs: list each job with its own link
+            return Array.from({ length: jobCount }).map((_, jobIndex) => (
+                <LinkContainer
+                    key={`${key}-${jobIndex}`}
+                    to={`/app/${projectId}/${key}/${jobIndex}`}
+                >
+                    <ListGroup.Item action={true}>
+                        {val.title} — Job {jobIndex + 1}
+                    </ListGroup.Item>
+                </LinkContainer>
+            ))
+        })
 
     return (
         <div>

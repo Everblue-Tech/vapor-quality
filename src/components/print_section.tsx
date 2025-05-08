@@ -1,15 +1,21 @@
-import { useId, useState, FC, ReactNode } from 'react'
+import { useId, useState, FC, ReactNode, useEffect } from 'react'
 import print from 'print-js'
 import Button from 'react-bootstrap/Button'
 import jsPDF from 'jspdf'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 import { exportDocumentAsJSONObject, useDB } from '../utilities/database_utils'
-import { saveToVaporCoreDB } from './store'
+import {
+    closeProcessStepIfAllMeasuresComplete,
+    saveToVaporCoreDB,
+    updateProcessStepWithMeasure,
+} from './store'
+import { getAuthToken } from '../auth/keycloak'
 
 interface PrintSectionProps {
     children: ReactNode
     label: string
-    // documentType: string
+    measureName: string
+    jobId?: string
 }
 
 /**
@@ -21,17 +27,24 @@ interface PrintSectionProps {
 const PrintSection: FC<PrintSectionProps> = ({
     children,
     label,
-    // documentType,
+    measureName,
+    jobId,
 }) => {
+    const [existingMeasure, setExistingMeasure] = useState<any | null>(null)
     const [isSubmitted, setIsSubmitted] = useState(false)
+    const [submissionStatus, setSubmissionStatus] = useState<
+        'idle' | 'success' | 'error'
+    >('idle')
+
     const [isUploading, setIsUploading] = useState(false)
 
     const db = useDB()
     const docId = localStorage.getItem('selected_doc_id')
     const userId = localStorage.getItem('user_id')
+    const processId = localStorage.getItem('process_id')
     const processStepId = localStorage.getItem('process_step_id')
     const organizationId = localStorage.getItem('organization_id')
-    const documentType = 'Quality Install Document' // pass this down? not sure yet
+    const documentType = 'Quality Install Document'
 
     const printContainerId = useId()
     const isSafari = () =>
@@ -48,60 +61,135 @@ const PrintSection: FC<PrintSectionProps> = ({
             }
         }
     }
+    console.log('JOBID', jobId)
+
+    // option to update existing submission if found
+    useEffect(() => {
+        const checkExistingSubmission = async () => {
+            if (!processId || !processStepId || !userId) return
+
+            try {
+                const res = await fetch(
+                    `http://localhost:5000/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            Authorization: `Bearer ${getAuthToken()}`,
+                        },
+                    },
+                )
+
+                const data = await res.json()
+                const measures = data?.data?.measures || []
+
+                const found = measures.find(
+                    (m: any) =>
+                        m.name === measureName &&
+                        m.status?.toLowerCase() === 'completed',
+                )
+
+                if (found) {
+                    setExistingMeasure(found)
+                    setIsSubmitted(true)
+                }
+            } catch (err) {
+                console.error('Error checking existing submission:', err)
+            }
+        }
+
+        checkExistingSubmission()
+    }, [processId, processStepId, userId, measureName])
 
     const handleSubmitReport = async () => {
         setIsUploading(true)
+        setSubmissionStatus('idle')
 
         const container = document.getElementById(printContainerId)
-        if (!container) throw new Error('Container ID not found!')
+        if (!container) {
+            alert('Error: Print container not found.')
+            setIsUploading(false)
+            return
+        }
+
+        let vaporCoreDocumentId: string | undefined
+        let response: any
 
         try {
+            // generate PDF from final report data
             const doc = new jsPDF({
                 orientation: 'portrait',
                 unit: 'pt',
                 format: 'a4',
             })
 
-            doc.html(container, {
-                x: 10,
-                y: 10,
-                autoPaging: 'text',
-                html2canvas: {
-                    scale: 1,
-                    allowTaint: true,
-                    useCORS: true,
-                },
-                callback: async function (doc) {
-                    const pdfBlob = doc.output('blob')
-
-                    const documentId = await uploadImageToS3AndCreateDocument({
-                        file: pdfBlob,
-                        userId,
-                        organizationId,
-                        documentType,
-                    })
-
-                    if (documentId) {
-                        console.log('Report uploaded to s3 successfully!')
-                    }
-                },
+            await new Promise<void>((resolve, reject) => {
+                doc.html(container, {
+                    x: 10,
+                    y: 10,
+                    autoPaging: 'text',
+                    html2canvas: {
+                        scale: 1,
+                        allowTaint: true,
+                        useCORS: true,
+                    },
+                    callback: () => resolve(),
+                })
             })
+
+            const pdfBlob = doc.output('blob')
+
+            // create document ID in vapor-core, upload to S3
+            vaporCoreDocumentId = await uploadImageToS3AndCreateDocument({
+                file: pdfBlob,
+                userId,
+                organizationId,
+                documentType,
+                measureName,
+            })
+
+            if (!vaporCoreDocumentId) {
+                throw new Error('Upload to S3 failed')
+            }
+
+            // export final report data as JSON
             const rawExport = await exportDocumentAsJSONObject(db, docId!, true)
             const jsonExport =
                 typeof rawExport === 'string'
                     ? JSON.parse(rawExport)
                     : rawExport
 
-            const response = await saveToVaporCoreDB(
+            // save final report JSON data to RDS
+            response = await saveToVaporCoreDB(
                 userId,
                 processStepId,
                 docId,
                 jsonExport,
             )
-            console.log(response)
+
+            // update process step with measure info
+            await updateProcessStepWithMeasure({
+                userId: userId,
+                processId: processId!,
+                processStepId: processStepId!,
+                measureName,
+                finalReportDocumentId: vaporCoreDocumentId,
+                finalReportJSONId: response,
+                jobId: jobId,
+            })
+
+            // update process step to CLOSED if all measures complete
+            await closeProcessStepIfAllMeasuresComplete(
+                processId,
+                processStepId,
+                userId,
+            )
+
+            setIsSubmitted(true)
+            setSubmissionStatus('success')
         } catch (error) {
-            console.error('Failed to generate and submit report: ', error)
+            console.error('Submission failed:', error)
             alert('Submission failed. Please try again.')
+            setSubmissionStatus('error')
         } finally {
             setIsUploading(false)
         }
@@ -109,15 +197,24 @@ const PrintSection: FC<PrintSectionProps> = ({
 
     return (
         <>
-            {!isSubmitted ? (
+            {(existingMeasure || !isSubmitted) && (
                 <Button
                     onClick={handleSubmitReport}
                     disabled={isUploading}
-                    variant="success"
+                    variant={existingMeasure ? 'warning' : 'success'}
+                    style={{ marginRight: '1rem' }}
                 >
-                    {isUploading ? 'Submitting...' : 'Submit Final Report'}
+                    {isUploading
+                        ? existingMeasure
+                            ? 'Updating...'
+                            : 'Submitting...'
+                        : existingMeasure
+                          ? 'Update Submission'
+                          : 'Submit Final Report'}
                 </Button>
-            ) : (
+            )}
+
+            {(isSubmitted || existingMeasure) && (
                 <Button
                     onClick={event => {
                         addSafariHeader()
@@ -138,6 +235,18 @@ const PrintSection: FC<PrintSectionProps> = ({
                 >
                     {label}
                 </Button>
+            )}
+
+            {submissionStatus === 'success' && (
+                <p style={{ color: 'green', marginTop: '1rem' }}>
+                    Report submitted successfully!
+                </p>
+            )}
+
+            {submissionStatus === 'error' && (
+                <p style={{ color: 'red', marginTop: '1rem' }}>
+                    There was an error submitting the report.
+                </p>
             )}
 
             <div id={printContainerId}>

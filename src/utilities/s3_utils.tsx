@@ -33,11 +33,13 @@ export async function uploadImageToS3AndCreateDocument({
     userId,
     organizationId,
     documentType,
+    measureName,
 }: {
     file: File | Blob
     userId: string | null
     organizationId: string | null
     documentType: string
+    measureName: string
 }) {
     if (!file) throw new Error('No file provided')
 
@@ -65,7 +67,10 @@ export async function uploadImageToS3AndCreateDocument({
             ? file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
             : `upload_${Date.now()}`
 
-    const s3Key = `quality-install/documents/${Date.now()}_${sanitizedFileName}`
+    // normalize & convert measure name to kebab-case
+    const sanitizedMeasureName = measureName.toLowerCase().replace(/\s+/g, '-')
+
+    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${Date.now()}_${sanitizedFileName}`
 
     const putObjectCommand = new PutObjectCommand({
         Bucket: process.env.REACT_APP_AWS_S3_BUCKET,

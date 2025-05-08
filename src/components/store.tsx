@@ -182,90 +182,90 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         }
     }
 
-    useEffect(() => {
-        const { processId, userId, processStepId } = extractLocalStorageData()
-        if (!processStepId && processId) {
-            console.log(`Fetching process_step_id for process: ${processId}`)
+    // useEffect(() => {
+    //     const { processId, userId, processStepId } = extractLocalStorageData()
+    //     if (!processStepId && processId) {
+    //         console.log(`Fetching process_step_id for process: ${processId}`)
 
-            fetch(`http://localhost:5000/api/process/${processId}/steps`, {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${getAuthToken()}` },
-            })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('API Response for process steps:', data)
+    //         fetch(`http://localhost:5000/api/process/${processId}/steps`, {
+    //             method: 'GET',
+    //             headers: { Authorization: `Bearer ${getAuthToken()}` },
+    //         })
+    //             .then(response => response.json())
+    //             .then(data => {
+    //                 console.log('API Response for process steps:', data)
 
-                    if (data.steps && data.steps.length > 0) {
-                        const qualityInstallStep = data.steps.find(
-                            (step: { description?: string }) =>
-                                step.description &&
-                                step.description.includes('quality install'),
-                        )
+    //                 if (data.steps && data.steps.length > 0) {
+    //                     const qualityInstallStep = data.steps.find(
+    //                         (step: { description?: string }) =>
+    //                             step.description &&
+    //                             step.description.includes('quality install'),
+    //                     )
 
-                        if (qualityInstallStep) {
-                            let processStepId = qualityInstallStep.id
-                            localStorage.setItem(
-                                'process_step_id',
-                                processStepId,
-                            )
-                        }
-                    } else {
-                        console.warn('No steps found for process:', processId)
-                    }
-                })
-                .catch(error =>
-                    console.error('Error fetching process_step_id:', error),
-                )
-        }
-        fetch(
-            `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
-            {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${getAuthToken()}` },
-            },
-        )
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && data.form) {
-                    if (!doc.data_) doc.data_ = {}
-                    doc.data_.form_id = data.form.id
-                    localStorage.setItem('form_id', data.form.id)
-                    window.docData = doc.data_
-                } else {
-                    createQualityInstallForm(userId, processStepId)
-                }
-            })
-            .catch(error =>
-                console.error('Error fetching quality install form:', error),
-            )
-    }, [])
+    //                     if (qualityInstallStep) {
+    //                         let processStepId = qualityInstallStep.id
+    //                         localStorage.setItem(
+    //                             'process_step_id',
+    //                             processStepId,
+    //                         )
+    //                     }
+    //                 } else {
+    //                     console.warn('No steps found for process:', processId)
+    //                 }
+    //             })
+    //             .catch(error =>
+    //                 console.error('Error fetching process_step_id:', error),
+    //             )
+    //     }
+    //     fetch(
+    //         `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+    //         {
+    //             method: 'GET',
+    //             headers: { Authorization: `Bearer ${getAuthToken()}` },
+    //         },
+    //     )
+    //         .then(response => response.json())
+    //         .then(data => {
+    //             if (data.success && data.form) {
+    //                 if (!doc.data_) doc.data_ = {}
+    //                 doc.data_.form_id = data.form.id
+    //                 localStorage.setItem('form_id', data.form.id)
+    //                 window.docData = doc.data_
+    //             } else {
+    //                 createQualityInstallForm(userId, processStepId)
+    //             }
+    //         })
+    //         .catch(error =>
+    //             console.error('Error fetching quality install form:', error),
+    //         )
+    // }, [])
 
-    const createQualityInstallForm = (
-        userId: string,
-        processStepId: string,
-    ) => {
-        fetch(`http://localhost:5000/api/quality-install`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${getAuthToken()}`,
-            },
-            body: JSON.stringify({
-                user_id: userId,
-                process_step_id: processStepId,
-                form_data: {},
-            }),
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    localStorage.setItem('form_id', data.form_id)
-                }
-            })
-            .catch(error =>
-                console.error('Error in createQualityInstallForm:', error),
-            )
-    }
+    // const createQualityInstallForm = (
+    //     userId: string,
+    //     processStepId: string,
+    // ) => {
+    //     fetch(`http://localhost:5000/api/quality-install`, {
+    //         method: 'POST',
+    //         headers: {
+    //             'Content-Type': 'application/json',
+    //             Authorization: `Bearer ${getAuthToken()}`,
+    //         },
+    //         body: JSON.stringify({
+    //             user_id: userId,
+    //             process_step_id: processStepId,
+    //             form_data: {},
+    //         }),
+    //     })
+    //         .then(response => response.json())
+    //         .then(data => {
+    //             if (data.success) {
+    //                 localStorage.setItem('form_id', data.form_id)
+    //             }
+    //         })
+    //         .catch(error =>
+    //             console.error('Error in createQualityInstallForm:', error),
+    //         )
+    // }
 
     useEffect(() => {
         /**
@@ -844,7 +844,7 @@ export const saveToVaporCoreDB = async (
     processStepId: string | null,
     docId: string | null,
     jsonExport: any,
-): Promise<void> => {
+): Promise<string | undefined> => {
     if (!userId || !processStepId) {
         console.warn('Missing userId or processStepId in saveToVaporCoreDB')
         return
@@ -884,16 +884,168 @@ export const saveToVaporCoreDB = async (
                         body: JSON.stringify(formData),
                     },
                 )
-                console.log('postResponse', postResponse)
 
                 if (!postResponse.ok) {
                     throw new Error(`Failed to create form with ID ${docId}`)
                 }
+
+                const responseData = await postResponse.json()
+                return responseData.form_data_id // <-- Return the created ID
             } else if (!putResponse.ok) {
                 throw new Error(`Failed to update form with ID ${docId}`)
+            } else {
+                return docId // If PUT succeeds, return the original ID
             }
+        } else {
+            // if no docId was provided, treat as new form creation
+            const postResponse = await fetch(
+                `http://localhost:5000/api/quality-install`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${getAuthToken()}`,
+                    },
+                    body: JSON.stringify(formData),
+                },
+            )
+
+            if (!postResponse.ok) {
+                throw new Error('Failed to create form (no docId provided)')
+            }
+
+            const responseData = await postResponse.json()
+            return responseData.form_data_id
         }
     } catch (error) {
         console.error('Error saving to RDS:', error)
+    }
+}
+
+export const updateProcessStepWithMeasure = async ({
+    userId,
+    processId,
+    processStepId,
+    measureName,
+    finalReportDocumentId,
+    finalReportJSONId,
+    jobId,
+}: {
+    userId: string | null
+    processId: string
+    processStepId: string
+    measureName: string
+    finalReportDocumentId: string
+    finalReportJSONId: string
+    jobId?: string
+}) => {
+    const response = await fetch(
+        `http://localhost:5000/api/process/${processId}/step/${processStepId}/form-data`,
+        {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${getAuthToken()}`,
+                'x-user-id': userId ?? '',
+            },
+            body: JSON.stringify({
+                add_measure: {
+                    name: measureName,
+                    jobs: [
+                        {
+                            job_id: jobId,
+                            status: 'completed',
+                            final_report_document_id: finalReportDocumentId,
+                            final_report_json_id: finalReportJSONId,
+                        },
+                    ],
+                },
+            }),
+        },
+    )
+
+    if (!response.ok) {
+        throw new Error('Failed to update process step with measure details')
+    }
+
+    return await response.json()
+}
+
+export const closeProcessStepIfAllMeasuresComplete = async (
+    processId: string | null,
+    processStepId: string | null,
+    userId: string | null,
+): Promise<void> => {
+    const expectedMeasureNames: string[] = JSON.parse(
+        localStorage.getItem('measures') || '[]',
+    )
+
+    console.log('inside close process steps', processId)
+    console.log('inside again', processId)
+
+    if (!processId || !processStepId) {
+        console.warn('Missing required identifiers.')
+        return
+    }
+
+    try {
+        const formDataRes = await fetch(
+            `http://localhost:5000/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+            {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${getAuthToken()}`,
+                },
+            },
+        )
+
+        if (!formDataRes.ok) {
+            console.error('Failed to fetch form data')
+            return
+        }
+
+        const formJson = await formDataRes.json()
+        console.log('FORMJSON', formJson)
+        const formData = formJson?.data?.form_data ?? {}
+        console.log(formData)
+
+        const actualMeasures = formData?.measures || []
+
+        const allCompleted = expectedMeasureNames.every(expected =>
+            actualMeasures.some(
+                (actual: any) =>
+                    actual.name === expected &&
+                    actual.status?.toLowerCase() === 'completed',
+            ),
+        )
+
+        console.log(allCompleted)
+
+        if (!allCompleted) {
+            console.log('Not all expected measures are marked completed.')
+            return
+        }
+
+        const closeRes = await fetch(
+            `http://localhost:5000/api/process/${processId}/step/${processStepId}/condition`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${getAuthToken()}`,
+                    'x-user-id': userId ?? '',
+                },
+                body: JSON.stringify({ condition: 'CLOSED' }),
+            },
+        )
+
+        if (!closeRes.ok) {
+            const errorBody = await closeRes.text()
+            console.error('Failed to close step:', errorBody)
+        } else {
+            console.log('Process step closed successfully.')
+        }
+    } catch (error) {
+        console.error(' Error:', error)
     }
 }
