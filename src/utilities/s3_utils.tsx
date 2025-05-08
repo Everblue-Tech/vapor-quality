@@ -8,7 +8,7 @@ import { getAuthToken } from '../auth/keycloak'
 export async function fetchDocumentTypes(documentType: string) {
     try {
         const response = await fetch(
-            `http://localhost:5000/api/documents/types`,
+            `${process.env.REACT_APP_VAPORCORE_URL}/api/documents/types`,
         )
         if (!response.ok) {
             throw new Error('Failed to fetch document types.')
@@ -92,7 +92,7 @@ export async function uploadImageToS3AndCreateDocument({
 
     // create a document in vapor-core
     const documentResponse = await fetch(
-        `http://localhost:5000/api/documents/create`,
+        `${process.env.REACT_APP_VAPORCORE_URL}/api/documents/create`,
         {
             method: 'POST',
             headers: {

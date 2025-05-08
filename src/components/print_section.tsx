@@ -70,7 +70,7 @@ const PrintSection: FC<PrintSectionProps> = ({
 
             try {
                 const res = await fetch(
-                    `http://localhost:5000/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+                    `${process.env.REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
                     {
                         method: 'GET',
                         headers: {

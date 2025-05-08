@@ -188,7 +188,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     //     if (!processStepId && processId) {
     //         console.log(`Fetching process_step_id for process: ${processId}`)
 
-    //         fetch(`http://localhost:5000/api/process/${processId}/steps`, {
+    //         fetch(`${process.env.REACT_APP_VAPORCORE_URL}/api/process/${processId}/steps`, {
     //             method: 'GET',
     //             headers: { Authorization: `Bearer ${getAuthToken()}` },
     //         })
@@ -219,7 +219,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     //             )
     //     }
     //     fetch(
-    //         `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+    //         `${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
     //         {
     //             method: 'GET',
     //             headers: { Authorization: `Bearer ${getAuthToken()}` },
@@ -245,7 +245,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     //     userId: string,
     //     processStepId: string,
     // ) => {
-    //     fetch(`http://localhost:5000/api/quality-install`, {
+    //     fetch(`${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install`, {
     //         method: 'POST',
     //         headers: {
     //             'Content-Type': 'application/json',
@@ -623,7 +623,7 @@ export function immutableUpsert(
 //         const pdfBlob = pdf.output('blob')
 
 //         const s3Response = await fetch(
-//             'http://localhost:5000/api/s3/FILL_ME_IN', // CHANGE TO S3 PRSIGNED URL - need to generate on backend to make put
+//             '${process.env.REACT_APP_VAPORCORE_URL}/api/s3/FILL_ME_IN', // CHANGE TO S3 PRSIGNED URL - need to generate on backend to make put
 //             {
 //                 method: 'POST',
 //                 headers: {
@@ -653,7 +653,7 @@ export function immutableUpsert(
 //         }
 //         let formId = localStorage.getItem('form_id')
 //         const updateResponse = await fetch(
-//             `http://localhost:5000/api/quality-install/${formId}`,
+//             `${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install/${formId}`,
 //             {
 //                 method: 'PUT',
 //                 headers: {
@@ -674,7 +674,7 @@ export function immutableUpsert(
 //         }
 //         const { processId, userId, processStepId } = extractLocalStorageData()
 //         const conditionResponse = await fetch(
-//             `http://localhost:5000/api/process/${processId}/step/${processStepId}/condition`,
+//             `${process.env.REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/condition`,
 //             {
 //                 method: 'PUT',
 //                 headers: {
@@ -804,7 +804,7 @@ export const isFormComplete = (formData: any, metadata?: any): boolean => {
 //         const formId = localStorage.getItem('form_id')
 //         if (formId) {
 //             response = await fetch(
-//                 `http://localhost:5000/api/quality-install/${formId}`,
+//                 `${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install/${formId}`,
 //                 {
 //                     method: 'PUT',
 //                     headers: {
@@ -816,7 +816,7 @@ export const isFormComplete = (formData: any, metadata?: any): boolean => {
 //             )
 //         } else {
 //             response = await fetch(
-//                 'http://localhost:5000/api/quality-install',
+//                 '${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install',
 //                 {
 //                     method: 'POST',
 //                     headers: {
@@ -876,7 +876,7 @@ export const saveToVaporCoreDB = async (
     try {
         if (docId) {
             const putResponse = await fetch(
-                `http://localhost:5000/api/quality-install/${docId}`,
+                `${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install/${docId}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -890,7 +890,7 @@ export const saveToVaporCoreDB = async (
             if (putResponse.status === 404 || putResponse.status === 400) {
                 console.warn(`Form ID ${docId} not found, retrying as POST...`)
                 const postResponse = await fetch(
-                    `http://localhost:5000/api/quality-install`,
+                    `${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install`,
                     {
                         method: 'POST',
                         headers: {
@@ -915,7 +915,7 @@ export const saveToVaporCoreDB = async (
         } else {
             // if no docId was provided, treat as new form creation
             const postResponse = await fetch(
-                `http://localhost:5000/api/quality-install`,
+                `${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install`,
                 {
                     method: 'POST',
                     headers: {
@@ -956,7 +956,7 @@ export const updateProcessStepWithMeasure = async ({
     jobId?: string
 }) => {
     const response = await fetch(
-        `http://localhost:5000/api/process/${processId}/step/${processStepId}/form-data`,
+        `${process.env.REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data`,
         {
             method: 'PATCH',
             headers: {
@@ -1003,7 +1003,7 @@ export const closeProcessStepIfAllMeasuresComplete = async (
 
     try {
         const formDataRes = await fetch(
-            `http://localhost:5000/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+            `${process.env.REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
             {
                 method: 'GET',
                 headers: {
@@ -1041,7 +1041,7 @@ export const closeProcessStepIfAllMeasuresComplete = async (
         }
 
         const closeRes = await fetch(
-            `http://localhost:5000/api/process/${processId}/step/${processStepId}/condition`,
+            `${process.env.REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/condition`,
             {
                 method: 'PUT',
                 headers: {

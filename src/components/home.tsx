@@ -100,7 +100,7 @@ const Home: FC = () => {
 
             try {
                 const res = await fetch(
-                    `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+                    `${process.env.REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
                 )
                 const data = await res.json()
 
