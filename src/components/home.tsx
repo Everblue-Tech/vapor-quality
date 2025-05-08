@@ -1,4 +1,10 @@
-import React, { useState, type FC, useEffect, SetStateAction } from 'react'
+import React, {
+    useState,
+    type FC,
+    useEffect,
+    SetStateAction,
+    useRef,
+} from 'react'
 import { ListGroup, Button, Modal } from 'react-bootstrap'
 import { LinkContainer } from 'react-router-bootstrap'
 import { TfiTrash, TfiPencil, TfiArrowDown } from 'react-icons/tfi'
@@ -7,6 +13,7 @@ import { deleteEmptyProjects, useDB } from '../utilities/database_utils'
 import ImportDoc from './import_document_wrapper'
 import ExportDoc from './export_document_wrapper'
 import { persistSessionState } from './store'
+import { getAuthToken } from '../auth/keycloak'
 
 /**
  * Home:  Renders the Home page for the APP
@@ -25,6 +32,10 @@ const Home: FC = () => {
     const [applicationId, setApplicationId] = useState<string | null>(null)
     const [processStepId, setProcessStepId] = useState<string | null>(null)
     const [processId, setProcessId] = useState<string | null>(null)
+    const hasHydratedRef = useRef(false)
+    const [isHydrating, setIsHydrating] = useState(false)
+
+    const db = useDB()
 
     // listen for postMessage from the parent window (vapor-flow) to initialize form metadata
     useEffect(() => {
@@ -73,12 +84,60 @@ const Home: FC = () => {
         return () => window.removeEventListener('message', handleMessage)
     }, [])
 
+    useEffect(() => {
+        const fetchAndImportFromRDS = async () => {
+            if (hasHydratedRef.current) return
+            if (!userId || !processStepId) return
+
+            const hydrationKey = `hydrated_${userId}_${processStepId}`
+            if (localStorage.getItem(hydrationKey)) {
+                console.log('Already hydrated — skipping RDS import.')
+                return
+            }
+
+            hasHydratedRef.current = true
+            setIsHydrating(true)
+
+            try {
+                const res = await fetch(
+                    `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+                )
+                const data = await res.json()
+
+                if (data.success && Array.isArray(data.forms)) {
+                    const formEntry = data.forms[0]
+                    const jsonData = formEntry.form_data
+
+                    const existing = await db.allDocs({ include_docs: true })
+                    const projectNames = existing.rows
+                        .map((row: any) => row.doc)
+                        .filter((doc: any) => doc?.type === 'project')
+                        .map((doc: any) => doc.metadata_?.doc_name)
+
+                    const { ImportDocumentIntoDB } = await import(
+                        '../utilities/database_utils'
+                    )
+                    await ImportDocumentIntoDB(db, jsonData, projectNames)
+                    localStorage.setItem(hydrationKey, 'true')
+
+                    console.log('Imported form data from RDS into PouchDB.')
+                } else {
+                    console.warn('No form data found for user/process step.')
+                }
+            } catch (err) {
+                console.error('Error importing from RDS:', err)
+            } finally {
+                setIsHydrating(false)
+            }
+        }
+
+        fetchAndImportFromRDS()
+    }, [userId, processStepId])
+
     // persist session state to localStorage whenever metadata changes - helps retain values across navigation/refreshes
     useEffect(() => {
         persistSessionState({ userId, applicationId, processId, processStepId })
     }, [userId, applicationId, processId, processStepId])
-
-    const db = useDB()
 
     const retrieveProjectInfo = async (): Promise<void> => {
         // Dynamically import the function when needed

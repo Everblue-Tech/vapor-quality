@@ -23,6 +23,7 @@ import {
 import EventEmitter from 'events'
 import { getAuthToken } from '../auth/keycloak'
 import jsPDF from 'jspdf'
+import { measureTypeMapping } from '../templates/templates_config'
 
 PouchDB.plugin(PouchDBUpsert)
 
@@ -281,17 +282,32 @@ export const StoreProvider: FC<StoreProviderProps> = ({
          */
         ;(async function connectStoreToDB() {
             try {
-                // Initialize the DB document as needed
-                const result = !isInstallationDoc
-                    ? ((await putNewProject(db, docName, docId)) as unknown)
-                    : ((await putNewInstallation(
-                          db,
-                          docId,
-                          workflowName,
-                          docName,
-                          parentId as string,
-                      )) as unknown)
-                revisionRef.current = (result as PouchDB.Core.Response).rev
+                const normalizedDocId = docId === '0' ? undefined : docId
+
+                // Check if the document already exists
+                let existingDoc: any = null
+                if (normalizedDocId) {
+                    existingDoc = await db
+                        .get(normalizedDocId)
+                        .catch(() => null)
+                }
+
+                if (!existingDoc) {
+                    const result = !isInstallationDoc
+                        ? await putNewProject(db, docName, docId)
+                        : await putNewInstallation(
+                              db,
+                              docId,
+                              workflowName,
+                              docName,
+                              parentId as string,
+                          )
+                    revisionRef.current = (
+                        result as unknown as PouchDB.Core.Response
+                    ).rev
+                } else {
+                    revisionRef.current = existingDoc._rev
+                }
             } catch (err) {
                 console.error('DB initialization error:', err)
                 // TODO: Rethink how best to handle errors
@@ -980,9 +996,6 @@ export const closeProcessStepIfAllMeasuresComplete = async (
         localStorage.getItem('measures') || '[]',
     )
 
-    console.log('inside close process steps', processId)
-    console.log('inside again', processId)
-
     if (!processId || !processStepId) {
         console.warn('Missing required identifiers.')
         return
@@ -1005,21 +1018,22 @@ export const closeProcessStepIfAllMeasuresComplete = async (
         }
 
         const formJson = await formDataRes.json()
-        console.log('FORMJSON', formJson)
-        const formData = formJson?.data?.form_data ?? {}
-        console.log(formData)
-
+        const formData = formJson?.data ?? {}
         const actualMeasures = formData?.measures || []
 
-        const allCompleted = expectedMeasureNames.every(expected =>
-            actualMeasures.some(
-                (actual: any) =>
-                    actual.name === expected &&
-                    actual.status?.toLowerCase() === 'completed',
-            ),
-        )
+        const allCompleted = expectedMeasureNames.every(expected => {
+            const actualNames = measureTypeMapping[expected.toLowerCase()] || []
 
-        console.log(allCompleted)
+            return actualMeasures.some(
+                (actual: any) =>
+                    actualNames.includes(actual.name) &&
+                    Array.isArray(actual.jobs) &&
+                    actual.jobs.length > 0 &&
+                    actual.jobs.every(
+                        (job: any) => job.status?.toLowerCase() === 'completed',
+                    ),
+            )
+        })
 
         if (!allCompleted) {
             console.log('Not all expected measures are marked completed.')

@@ -37,7 +37,6 @@ const WorkFlowView: FC = () => {
             const normalized = measureNames.map(m => m.toLowerCase())
             // map normalized measures to template titles
             const mappedTitles = mapMeasuresToTemplateValues(normalized)
-            console.log('Allowed templates:', mappedTitles)
             setAllowedTemplates(mappedTitles)
         } catch (err) {
             console.warn('Failed to parse measures from localStorage:', err)
@@ -64,9 +63,10 @@ const WorkFlowView: FC = () => {
     }
 
     useEffect(() => {
-        Object.keys(templatesConfig).map(key => retrieveJobs(key))
+        if (allowedTemplates.length === 0) return
+        allowedTemplates.forEach(workflow => retrieveJobs(workflow))
         project_info()
-    }, [])
+    }, [allowedTemplates])
 
     const project_name = projectInfo?.project_name
         ? projectInfo?.project_name
@@ -87,7 +87,7 @@ const WorkFlowView: FC = () => {
                 return [
                     <LinkContainer
                         key={`${key}-0`}
-                        to={`/app/${projectId}/${key}/0`}
+                        to={`/app/${projectId}/${key}`}
                     >
                         <ListGroup.Item action={true}>
                             {val.title}

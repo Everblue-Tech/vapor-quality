@@ -120,7 +120,7 @@ const templatesConfig: TemplatesConfig = {
 }
 
 // Measure Type to Template Mapping
-const measureTypeMapping: Record<string, string[]> = {
+export const measureTypeMapping: Record<string, string[]> = {
     'air sealing': ['Attic Air Sealing and Insulation'],
     'appliance upgrade': [
         'High Efficiency Water Heater',
