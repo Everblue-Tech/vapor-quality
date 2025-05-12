@@ -20,6 +20,7 @@ import {
     StoreProvider,
 } from '../components/store'
 import { getAuthToken } from '../auth/keycloak'
+import { prefillFormHardcodedProject } from '../utilities/prefill_form_from_local_storage'
 
 export interface S3Config {
     region?: string
@@ -43,20 +44,16 @@ const Home: FC = () => {
     const [selectedProjectToDelete, setSelectedProjectToDelete] = useState('')
     const [selectedProjectNameToDelete, setSelectedProjectNameToDelete] =
         useState('')
-    // state variables that hold list of entries retrieved from vapor-core for a given process_id and user_id
     const [formEntries, setFormEntries] = useState<FormEntry[]>([])
     const [userId, setUserId] = useState<string | null>(null)
     const [applicationId, setApplicationId] = useState<string | null>(null)
     const [processStepId, setProcessStepId] = useState<string | null>(null)
     const [processId, setProcessId] = useState<string | null>(null)
     const db = useDB()
-    // tracks which one is selected for editing
     const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
-    // save s3Config to state
     const [s3Config, setS3Config] = useState<S3Config | null>(null)
 
     const retrieveProjectInfo = async (): Promise<void> => {
-        // Dynamically import the function when needed
         const { retrieveProjectDocs } = await import(
             '../utilities/database_utils'
         )
@@ -67,7 +64,6 @@ const Home: FC = () => {
         })
     }
 
-    // listen for postMessage from the parent window (vapor-flow) to initialize form metadata
     useEffect(() => {
         window.parent.postMessage({ type: 'REQUEST_INIT_FORM_DATA' }, '*')
     }, [])
@@ -121,7 +117,7 @@ const Home: FC = () => {
 
             try {
                 const response = await fetch(
-                    `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+                    `/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
                     {
                         headers: { Authorization: `Bearer ${getAuthToken()}` },
                     },
@@ -155,25 +151,25 @@ const Home: FC = () => {
                             try {
                                 const existing = await db.get(doc._id)
 
-                                inserted = true // Already exists, no need to insert
+                                inserted = true
                             } catch (err: any) {
                                 if (err.status === 404) {
                                     try {
                                         await db.put(doc)
-                                        inserted = true // Inserted successfully
+                                        inserted = true
                                     } catch (putErr: any) {
                                         if (putErr.status === 409) {
                                             console.warn(
                                                 `Conflict during initial insert, retrying...`,
                                             )
                                             tries++
-                                            continue // Retry
+                                            continue
                                         } else {
                                             console.error(
                                                 'Error putting doc:',
                                                 putErr,
                                             )
-                                            inserted = true // Break loop, don't get stuck forever
+                                            inserted = true
                                         }
                                     }
                                 } else if (err.status === 409) {
@@ -199,7 +195,6 @@ const Home: FC = () => {
                         }
                     }
 
-                    // now update UI state
                     setFormEntries(data.forms)
                     setProjectList(transformed)
                 }
@@ -211,12 +206,10 @@ const Home: FC = () => {
         fetchForms()
     }, [userId, processStepId])
 
-    // persist session state to localStorage whenever metadata changes - helps retain values across navigation/refreshes
     useEffect(() => {
         persistSessionState({ userId, applicationId, processId, processStepId })
     }, [userId, applicationId, processId, processStepId])
 
-    // hydrate session state from localStorage on component mount - restore user context after navigating away/reloading
     useEffect(() => {
         const savedUserId = localStorage.getItem('user_id')
         const savedApplicationId = localStorage.getItem('application_id')
@@ -236,7 +229,7 @@ const Home: FC = () => {
     useEffect(() => {
         if (!db) return
         retrieveProjectInfo()
-    }, [db]) // fetch the project details from DB as the state variable projectList is updated
+    }, [db])
 
     const handleFormSelect = (form: FormEntry | null) => {
         if (!window.docDataMap) window.docDataMap = {}
@@ -245,7 +238,6 @@ const Home: FC = () => {
             setSelectedFormId(form.id)
             localStorage.setItem('form_id', form.id)
 
-            // store form data in a form-specific map
             window.docDataMap[form.id] = form.form_data
             window.docData = form.form_data
         } else {
@@ -256,43 +248,103 @@ const Home: FC = () => {
         }
     }
 
+    // const handleAddJob = async () => {
+
+    //     const { putNewProject } = await import('../utilities/database_utils')
+    //     const formId =
+    //         prefillFormHardcodedProject(handleFormSelect) || crypto.randomUUID()
+
+    //     if (formId) {
+    //         setSelectedFormId(formId)
+    //     }
+
+    //     // If form wasn't prefilled, fall back to blank defaults
+    //     if (!window.docData || Object.keys(window.docData).length === 0) {
+    //         window.docData = {
+    //             location: {
+    //                 city: '',
+    //                 state: '',
+    //                 zip_code: '',
+    //                 street_address: '',
+    //             },
+    //             installer: {
+    //                 name: '',
+    //                 email: '',
+    //                 phone: '',
+    //                 company_name: '',
+    //                 mailing_address: '',
+    //             },
+    //         }
+    //     }
+
+    //     window.docDataMap = window.docDataMap || {}
+    //     window.docDataMap[formId] = window.docData
+
+    //     // ✅ This is what makes it actually show up in the UI
+    //     await db.upsert(formId, (doc: any) => {
+    //         return {
+    //             ...doc,
+    //             data_: window.docData,
+    //             metadata_: {
+    //                 ...(doc.metadata_ || {}),
+    //                 form_id: formId,
+    //             },
+    //         }
+    //     })
+
+    //     const newProjectDoc = await putNewProject(db, '', formId)
+    //     if (newProjectDoc) {
+    //         await retrieveProjectInfo()
+    //         editAddressDetailsDirect(newProjectDoc.id, formId)
+    //     }
+    // }
     const handleAddJob = async () => {
         const { putNewProject } = await import('../utilities/database_utils')
-
         const formId = crypto.randomUUID()
-        localStorage.setItem('form_id', formId)
-        setSelectedFormId(formId)
 
-        // initialize basic empty form fields
-        window.docData = {
+        const formData = {
+            selectedProgram: 'HEAR',
             location: {
-                city: '',
-                state: '',
-                zip_code: '',
-                street_address: '',
+                street_address: '2001 East Dixon Boulevard',
+                city: 'Shelby',
+                state: 'NC',
+                zip_code: '28152',
             },
             installer: {
-                name: '',
-                email: '',
-                phone: '',
-                company_name: '',
-                mailing_address: '',
+                name: 'maxine meurer',
+                email: 'maxine@everblue.com',
+                phone: '9999999999',
+                company_name: 'Everblue Energy',
+                mailing_address: '1234 Main St, Shelby, NC',
             },
         }
+
+        window.docData = formData
         window.docDataMap = window.docDataMap || {}
-        window.docDataMap[formId] = window.docData
+        window.docDataMap[formId] = formData
+
+        await db.upsert(formId, (doc: any) => ({
+            ...doc,
+            data_: formData,
+            metadata_: {
+                ...(doc.metadata_ || {}),
+                form_id: formId,
+            },
+        }))
+
+        handleFormSelect({
+            id: formId,
+            form_data: formData,
+            user_id: 'f46c6d3f-658b-45d8-b146-d2fa985233c7',
+            process_step_id: '6a92a670-f953-47e2-8ac5-545746b3d244',
+            created_at: new Date().toISOString(),
+            updated_at: null,
+        })
+
+        setSelectedFormId(formId)
 
         const newProjectDoc = await putNewProject(db, '', formId)
         if (newProjectDoc) {
-            await db.upsert(newProjectDoc.id, (doc: any) => {
-                return {
-                    ...doc,
-                    metadata_: {
-                        ...(doc.metadata_ || {}),
-                        form_id: formId,
-                    },
-                }
-            })
             await retrieveProjectInfo()
             editAddressDetailsDirect(newProjectDoc.id, formId)
         }
@@ -309,11 +361,8 @@ const Home: FC = () => {
                 console.warn('No project selected to delete.')
                 return
             }
-
-            // Fetch projectDoc once
             const projectDoc: any = await db.get(selectedProjectToDelete)
 
-            // Delete from vapor-core DB
             const response = await fetch(
                 `http://localhost:5000/api/quality-install/${selectedProjectToDelete}`,
                 {
@@ -328,7 +377,6 @@ const Home: FC = () => {
                 console.log('Deleted form from vapor-core successfully')
             }
 
-            // Delete children first if any
             if (projectDoc?.children?.length > 0) {
                 const installDocs = await db.allDocs({
                     keys: projectDoc.children,
@@ -352,10 +400,8 @@ const Home: FC = () => {
                 }
             }
 
-            // Now delete the project doc itself
             await db.remove(projectDoc)
 
-            // Optimistically update local project list
             setProjectList(prev =>
                 prev.filter(p => p._id !== selectedProjectToDelete),
             )
@@ -401,7 +447,6 @@ const Home: FC = () => {
     }
 
     const editAddressDetailsDirect = (projectID: string, formId: string) => {
-        // directly create a fake "FormEntry" to avoid depending on projectList or formEntries
         const selectedForm: FormEntry = {
             id: formId,
             user_id: userId!,
@@ -431,7 +476,7 @@ const Home: FC = () => {
 
         if (selectedForm) {
             localStorage.setItem('form_id', formId)
-            await new Promise(resolve => setTimeout(resolve, 50)) // small delay to ensure localStorage flushes
+            await new Promise(resolve => setTimeout(resolve, 50)) 
             handleFormSelect(selectedForm)
             setSelectedFormId(formId)
         }
