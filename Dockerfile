@@ -47,7 +47,7 @@ COPY --from=builder /app/build .
 EXPOSE 80
 
 # Copy custom Nginx config and entrypoint script
-COPY nginx.conf.template /etc/nginx/nginx.conf.template
+COPY nginx.conf /etc/nginx/nginx.conf
 COPY entrypoint.sh /entrypoint.sh
 
 # Make entrypoint executable
