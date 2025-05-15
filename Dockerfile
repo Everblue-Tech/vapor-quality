@@ -46,5 +46,12 @@ COPY --from=builder /app/build .
 # Expose port 80
 EXPOSE 80
 
-# Start NGINX server
-CMD ["nginx", "-g", "daemon off;"]
+# Copy custom Nginx config and entrypoint script
+COPY nginx.conf.template /etc/nginx/nginx.conf.template
+COPY entrypoint.sh /entrypoint.sh
+
+# Make entrypoint executable
+RUN chmod +x /entrypoint.sh
+
+# Use custom entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
