@@ -41,7 +41,7 @@ WORKDIR /usr/share/nginx/html
 RUN rm -rf ./*
 
 # Copy build output from Stage 1
-COPY --from=builder /app/build .
+COPY --from=builder /app/build/ /usr/share/nginx/html/
 
 # Expose port 80
 EXPOSE 80
@@ -52,6 +52,9 @@ COPY entrypoint.sh /entrypoint.sh
 
 # Make entrypoint executable
 RUN chmod +x /entrypoint.sh
+
+# Make sure permissions are set
+RUN chmod -R 755 /usr/share/nginx/html
 
 # Use custom entrypoint
 ENTRYPOINT ["/entrypoint.sh"]
