@@ -13,7 +13,7 @@ http {
 
     server {
         listen 80;
-        server_name "${REACT_APP_VAPORFLOW_URL}";
+        server_name "${REACT_APP_VAPORFLOW_NO_PROTOCOL}";
 
         # Serve static files
         root /usr/share/nginx/html;
