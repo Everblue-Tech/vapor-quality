@@ -35,7 +35,8 @@ http {
                 add_header 'Access-Control-Allow-Credentials' 'true';
                 return 204;
             }
-            try_files $uri /index.html;
+            # Prevent infinite loop
+            try_files $uri $uri/ /index.html =404;
         }
 
         # Cache static assets
