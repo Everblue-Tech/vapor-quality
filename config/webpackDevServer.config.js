@@ -40,8 +40,6 @@ module.exports = function (proxy, allowedHost) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': '*',
       'Access-Control-Allow-Headers': '*',
-      'X-Frame-Options': `ALLOW-FROM ${process.env.REACT_APP_VAPORFLOW_URL} `,
-      'Content-Security-Policy': `frame-ancestors 'self' ${process.env.REACT_APP_VAPORFLOW_URL}`,
     },
     // Enable gzip compression of generated files.
     compress: true,
