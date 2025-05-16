@@ -12,6 +12,7 @@ declare namespace NodeJS {
         readonly REACT_APP_AWS_S3_BUCKET_USER_KEY: string
         readonly REACT_APP_AWS_REGION: string
         readonly REACT_APP_VAPORCORE_URL: string
+        readonly REACT_APP_VAPORFLOW_URL: string
     }
 }
 

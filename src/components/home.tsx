@@ -44,7 +44,7 @@ const Home: FC = () => {
 
     useEffect(() => {
         function handleMessage(event: MessageEvent) {
-            if (event.origin !== 'http://localhost:3000') return // need to adjust for dev/prod
+            if (event.origin !== process.env.REACT_APP_VAPORFLOW_URL) return // need to adjust for dev/prod
 
             if (event.data?.type === 'INIT_FORM_DATA') {
                 const {
