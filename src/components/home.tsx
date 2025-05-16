@@ -43,56 +43,44 @@ const Home: FC = () => {
     }, [])
 
     useEffect(() => {
-        function debugAllMessages(event: MessageEvent) {
-          console.log('[vapor-quality] Received message:', event);
+        function handleMessage(event: MessageEvent) {
+          console.log('[vapor-quality] Message received:', event);
+      
+          // TEMP ACCEPT ALL ORIGINS FOR DEBUGGING - NEED TO UPDATE TO ALLOWLIST
+          if (!event.origin.includes('vapor-flow.dev.goeverblue.tech')) {
+            console.warn('[vapor-quality] Rejected message from unexpected origin:', event.origin);
+            return;
+          }
+      
+          if (event.data?.type === 'INIT_FORM_DATA') {
+            console.log('[vapor-quality] Handling INIT_FORM_DATA:', event.data.payload);
+            const {
+              user_id,
+              application_id,
+              step_id,
+              process_id,
+              organization_id,
+              measures,
+            } = event.data.payload;
+      
+            localStorage.setItem('user_id', user_id);
+            localStorage.setItem('application_id', application_id);
+            localStorage.setItem('process_step_id', step_id);
+            localStorage.setItem('process_id', process_id);
+            localStorage.setItem('organization_id', organization_id);
+            localStorage.setItem('measures', JSON.stringify(measures));
+      
+            setUserId(user_id);
+            setApplicationId(application_id);
+            setProcessStepId(step_id);
+            setProcessId(process_id);
+          }
         }
       
-        window.addEventListener('message', debugAllMessages);
-        return () => window.removeEventListener('message', debugAllMessages);
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
       }, []);
       
-
-    useEffect(() => {
-        function handleMessage(event: MessageEvent) {
-            if (event.origin !== process.env.REACT_APP_VAPORFLOW_URL) return // need to adjust for dev/prod
-
-            if (event.data?.type === 'INIT_FORM_DATA') {
-                const {
-                    user_id,
-                    application_id,
-                    step_id,
-                    process_id,
-                    organization_id,
-                    measures,
-                } = event.data.payload
-
-                if (
-                    user_id &&
-                    application_id &&
-                    step_id &&
-                    process_id &&
-                    organization_id &&
-                    measures
-                ) {
-                    localStorage.setItem('user_id', user_id)
-                    localStorage.setItem('application_id', application_id)
-                    localStorage.setItem('process_step_id', step_id)
-                    localStorage.setItem('process_id', process_id)
-                    localStorage.setItem('organization_id', organization_id)
-                    localStorage.setItem('measures', JSON.stringify(measures))
-
-                    setUserId(user_id)
-                    setApplicationId(application_id)
-                    setProcessStepId(step_id)
-                    setProcessId(process_id)
-                }
-            }
-        }
-
-        window.addEventListener('message', handleMessage)
-
-        return () => window.removeEventListener('message', handleMessage)
-    }, [])
 
     useEffect(() => {
         const fetchAndImportFromRDS = async () => {
