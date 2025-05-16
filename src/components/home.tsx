@@ -43,6 +43,16 @@ const Home: FC = () => {
     }, [])
 
     useEffect(() => {
+        function debugAllMessages(event: MessageEvent) {
+          console.log('[vapor-quality] Received message:', event);
+        }
+      
+        window.addEventListener('message', debugAllMessages);
+        return () => window.removeEventListener('message', debugAllMessages);
+      }, []);
+      
+
+    useEffect(() => {
         function handleMessage(event: MessageEvent) {
             if (event.origin !== process.env.REACT_APP_VAPORFLOW_URL) return // need to adjust for dev/prod
 
