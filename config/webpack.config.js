@@ -604,7 +604,6 @@ module.exports = async function (webpackEnv) {
           {
             inject: true,
             template: paths.appHtml,
-            filename: 'index.html',
           },
           isEnvProduction
             ? {
