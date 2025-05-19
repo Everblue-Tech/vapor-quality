@@ -43,6 +43,9 @@ RUN rm -rf ./*
 # Copy build output from Stage 1
 COPY --from=builder /app/build .
 
+# Verify files copied correctly
+RUN ls -la /usr/share/nginx/html
+
 # Expose port 80
 EXPOSE 80
 
