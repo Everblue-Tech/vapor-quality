@@ -1,4 +1,10 @@
-import React, { useState, type FC, useEffect, SetStateAction } from 'react'
+import React, {
+    useState,
+    type FC,
+    useEffect,
+    SetStateAction,
+    useRef,
+} from 'react'
 import { ListGroup, Button, Modal } from 'react-bootstrap'
 import { LinkContainer } from 'react-router-bootstrap'
 import { TfiTrash, TfiPencil, TfiArrowDown } from 'react-icons/tfi'
@@ -6,6 +12,8 @@ import { useNavigate } from 'react-router-dom'
 import { deleteEmptyProjects, useDB } from '../utilities/database_utils'
 import ImportDoc from './import_document_wrapper'
 import ExportDoc from './export_document_wrapper'
+import { persistSessionState } from './store'
+import { getConfig } from '../config'
 
 /**
  * Home:  Renders the Home page for the APP
@@ -19,7 +27,68 @@ const Home: FC = () => {
     const [selectedProjectToDelete, setSelectedProjectToDelete] = useState('')
     const [selectedProjectNameToDelete, setSelectedProjectNameToDelete] =
         useState('')
+    // state variables that hold list of entries retrieved from vapor-core for a given process_id and user_id
+    const [userId, setUserId] = useState<string | null>(null)
+    const [applicationId, setApplicationId] = useState<string | null>(null)
+    const [processStepId, setProcessStepId] = useState<string | null>(null)
+    const [processId, setProcessId] = useState<string | null>(null)
+    const hasHydratedRef = useRef(false)
+    const [isHydrating, setIsHydrating] = useState(false)
+
     const db = useDB()
+
+    const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
+    const REACT_APP_VAPORFLOW_URL = getConfig('REACT_APP_VAPORFLOW_URL')
+
+    // listen for postMessage from the parent window (vapor-flow) to initialize form metadata
+    useEffect(() => {
+        window.parent.postMessage({ type: 'REQUEST_INIT_FORM_DATA' }, '*')
+    }, [])
+
+    useEffect(() => {
+        const allowedOrigin = REACT_APP_VAPORFLOW_URL
+        function handleMessage(event: MessageEvent) {
+            // only allow messages from vapor-flow
+            if (event.origin !== allowedOrigin) {
+                console.warn(
+                    '[vapor-quality] Rejected message from unexpected origin:',
+                    event.origin,
+                )
+                return
+            }
+
+            if (event.data?.type === 'INIT_FORM_DATA') {
+                const {
+                    user_id,
+                    application_id,
+                    step_id,
+                    process_id,
+                    organization_id,
+                    measures,
+                } = event.data.payload
+
+                localStorage.setItem('user_id', user_id)
+                localStorage.setItem('application_id', application_id)
+                localStorage.setItem('process_step_id', step_id)
+                localStorage.setItem('process_id', process_id)
+                localStorage.setItem('organization_id', organization_id)
+                localStorage.setItem('measures', JSON.stringify(measures))
+
+                setUserId(user_id)
+                setApplicationId(application_id)
+                setProcessStepId(step_id)
+                setProcessId(process_id)
+            }
+        }
+
+        window.addEventListener('message', handleMessage)
+        return () => window.removeEventListener('message', handleMessage)
+    }, [])
+
+    // persist session state to localStorage whenever metadata changes - helps retain values across navigation/refreshes
+    useEffect(() => {
+        persistSessionState({ userId, applicationId, processId, processStepId })
+    }, [userId, applicationId, processId, processStepId])
 
     const retrieveProjectInfo = async (): Promise<void> => {
         // Dynamically import the function when needed
@@ -138,6 +207,12 @@ const Home: FC = () => {
                           <LinkContainer
                               key={key}
                               to={`/app/${key._id}/workflows`}
+                              onClick={() =>
+                                  localStorage.setItem(
+                                      'selected_doc_id',
+                                      key._id,
+                                  )
+                              }
                           >
                               <ListGroup.Item key={key._id} action={true}>
                                   <span className="icon-container">
@@ -230,18 +305,20 @@ const Home: FC = () => {
                 )}
                 {Object.keys(projectList).length > 0 && (
                     <div>
-                        <div className="align-right padding">
-                            <Button
-                                onClick={handleAddJob}
-                                alt-text="Add a New Project"
-                            >
-                                Add a New Project
-                            </Button>
-                            <ImportDoc
-                                id="project_json"
-                                label="Import Project"
-                            />
-                        </div>
+                        {projectList.length === 0 && (
+                            <div className="align-right padding">
+                                <Button
+                                    onClick={handleAddJob}
+                                    alt-text="Add a New Project"
+                                >
+                                    Add a New Project
+                                </Button>
+                                <ImportDoc
+                                    id="project_json"
+                                    label="Import Project"
+                                />
+                            </div>
+                        )}
                         {projects_display}
                     </div>
                 )}

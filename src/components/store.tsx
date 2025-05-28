@@ -18,8 +18,12 @@ import {
     putNewProject,
     putNewInstallation,
     useDB,
+    exportDocumentAsJSONObject,
 } from '../utilities/database_utils'
 import EventEmitter from 'events'
+import jsPDF from 'jspdf'
+import { measureTypeMapping } from '../templates/templates_config'
+import { getConfig } from '../config'
 
 PouchDB.plugin(PouchDBUpsert)
 
@@ -41,6 +45,12 @@ type Attachments = Record<
     | Attachment
     | { blob: Blob; digest: string; metadata: Record<string, JSONValue> }
 >
+
+declare global {
+    interface Window {
+        docData: any
+    }
+}
 
 export const StoreContext = React.createContext({
     docId: '' satisfies string,
@@ -66,6 +76,8 @@ interface StoreProviderProps {
     type: string
     parentId?: string | undefined
 }
+
+const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
 
 /**
  * A wrapper component that connects its children to a data store via React Context
@@ -187,17 +199,32 @@ export const StoreProvider: FC<StoreProviderProps> = ({
          */
         ;(async function connectStoreToDB() {
             try {
-                // Initialize the DB document as needed
-                const result = !isInstallationDoc
-                    ? ((await putNewProject(db, docName, docId)) as unknown)
-                    : ((await putNewInstallation(
-                          db,
-                          docId,
-                          workflowName,
-                          docName,
-                          parentId as string,
-                      )) as unknown)
-                revisionRef.current = (result as PouchDB.Core.Response).rev
+                const normalizedDocId = docId === '0' ? undefined : docId
+
+                // Check if the document already exists
+                let existingDoc: any = null
+                if (normalizedDocId) {
+                    existingDoc = await db
+                        .get(normalizedDocId)
+                        .catch(() => null)
+                }
+
+                if (!existingDoc) {
+                    const result = !isInstallationDoc
+                        ? await putNewProject(db, docName, docId)
+                        : await putNewInstallation(
+                              db,
+                              docId,
+                              workflowName,
+                              docName,
+                              parentId as string,
+                          )
+                    revisionRef.current = (
+                        result as unknown as PouchDB.Core.Response
+                    ).rev
+                } else {
+                    revisionRef.current = existingDoc._rev
+                }
             } catch (err) {
                 console.error('DB initialization error:', err)
                 // TODO: Rethink how best to handle errors
@@ -296,9 +323,11 @@ export const StoreProvider: FC<StoreProviderProps> = ({
      * @param pathStr A string path such as "foo.bar[2].biz" that represents a path into the doc state
      * @param value The value that is to be updated/inserted
      */
+
     const upsertData: UpsertData = (pathStr, value) => {
         pathStr = 'data_.' + pathStr
         upsertDoc(pathStr, value)
+        window.docData = doc.data_
     }
 
     /**
@@ -489,4 +518,139 @@ export function immutableUpsert(
         )
     }
     return newRecipient
+}
+
+export function persistSessionState({
+    userId,
+    applicationId,
+    processId,
+    processStepId,
+}: {
+    userId?: string | null
+    applicationId?: string | null
+    processId?: string | null
+    processStepId?: string | null
+}) {
+    if (userId) localStorage.setItem('user_id', userId)
+    if (applicationId) localStorage.setItem('application_id', applicationId)
+    if (processId) localStorage.setItem('process_id', processId)
+    if (processStepId) localStorage.setItem('process_step_id', processStepId)
+}
+
+export const updateProcessStepWithMeasure = async ({
+    userId,
+    processId,
+    processStepId,
+    measureName,
+    finalReportDocumentId,
+    jobId,
+}: {
+    userId: string | null
+    processId: string
+    processStepId: string
+    measureName: string
+    finalReportDocumentId: string
+    jobId?: string
+}) => {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data`,
+        {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': userId ?? '',
+            },
+            body: JSON.stringify({
+                add_measure: {
+                    name: measureName,
+                    jobs: [
+                        {
+                            job_id: jobId,
+                            status: 'completed',
+                            final_report_document_id: finalReportDocumentId,
+                        },
+                    ],
+                },
+            }),
+        },
+    )
+
+    if (!response.ok) {
+        throw new Error('Failed to update process step with measure details')
+    }
+
+    return await response.json()
+}
+
+export const closeProcessStepIfAllMeasuresComplete = async (
+    processId: string | null,
+    processStepId: string | null,
+    userId: string | null,
+): Promise<void> => {
+    const expectedMeasureNames: string[] = JSON.parse(
+        localStorage.getItem('measures') || '[]',
+    )
+
+    if (!processId || !processStepId) {
+        console.warn('Missing required identifiers.')
+        return
+    }
+
+    try {
+        const formDataRes = await fetch(
+            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+            {
+                method: 'GET',
+            },
+        )
+
+        if (!formDataRes.ok) {
+            console.error('Failed to fetch form data')
+            return
+        }
+
+        const formJson = await formDataRes.json()
+        const formData = formJson?.data ?? {}
+        const actualMeasures = formData?.measures || []
+
+        const allCompleted = expectedMeasureNames.every(expected => {
+            const actualNames = measureTypeMapping[expected.toLowerCase()] || []
+
+            return actualMeasures.some(
+                (actual: any) =>
+                    actualNames.includes(actual.name) &&
+                    Array.isArray(actual.jobs) &&
+                    actual.jobs.length > 0 &&
+                    actual.jobs.every(
+                        (job: any) => job.status?.toLowerCase() === 'completed',
+                    ),
+            )
+        })
+
+        if (!allCompleted) {
+            console.log('Not all expected measures are marked completed.')
+            return
+        }
+
+        const closeRes = await fetch(
+            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/condition`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-user-id': userId ?? '',
+                },
+                body: JSON.stringify({ condition: 'CLOSED' }),
+            },
+        )
+
+        if (!closeRes.ok) {
+            const errorBody = await closeRes.text()
+            console.error('Failed to close step:', errorBody)
+        } else {
+            console.log('Process step closed successfully.')
+        }
+    } catch (error) {
+        console.error(' Error:', error)
+    }
 }

@@ -37,10 +37,6 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const [buttonLabel, setButtonLabel] = useState<String>('Save Project')
     const db = useDB()
 
-    const handleSaveButtonClick = (event: MouseEvent<HTMLButtonElement>) => {
-        saveProject()
-    }
-
     const handleCancelButtonClick = async (
         event: MouseEvent<HTMLButtonElement>,
     ) => {
@@ -52,9 +48,18 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
         deleteEmptyProject()
     }
 
-    const saveProject = () => {
-        updateValue('created')
-        navigate('/', { replace: true })
+    const handleSaveClick = async () => {
+        try {
+            const projectDoc: any = await db.get(id)
+            if (!projectDoc.metadata_ || !projectDoc.metadata_.doc_name) {
+                alert('Please enter a project name before saving.')
+                return
+            }
+            updateValue('created')
+            navigate('/', { replace: true })
+        } catch (error) {
+            console.error('Error saving project:', error)
+        }
     }
 
     useEffect(() => {
@@ -102,7 +107,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 &nbsp;
                 <Button
                     variant="primary"
-                    onClick={handleSaveButtonClick}
+                    onClick={handleSaveClick}
                     disabled={disableSave}
                 >
                     {buttonLabel}
