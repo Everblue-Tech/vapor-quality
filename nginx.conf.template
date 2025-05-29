@@ -1,0 +1,127 @@
+worker_processes 1;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    access_log /dev/stdout;
+    error_log /dev/stderr;
+    
+    server {
+        listen 80;
+        server_name ${SERVER_NAME};
+
+        # Serve static files
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Redirect HTTP to HTTPS (optional, if HTTPS is enabled)
+        # Uncomment this block if HTTPS is required
+        # if ($http_x_forwarded_proto != "https") {
+        #     return 301 https://$host$request_uri;
+        # }
+
+        location /api/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' '${VAPOR_FLOW_ORIGIN}' always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+                add_header 'Access-Control-Allow-Headers' 'Origin, Content-Type, Accept' always;
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                return 204;
+            }
+
+            proxy_pass ${VAPOR_CORE_ORIGIN};  
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            add_header 'Access-Control-Allow-Origin' '${VAPOR_FLOW_ORIGIN}' always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+        }
+
+        # React Router fallback for client-side routing
+        location / {
+            if ($request_method = 'OPTIONS') {
+                # Preflight CORS
+                add_header 'Access-Control-Allow-Origin' '${VAPOR_FLOW_ORIGIN}';
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT';
+                add_header 'Access-Control-Allow-Headers' 'Origin, Content-Type, Accept';
+                add_header 'Access-Control-Allow-Credentials' 'true';
+                return 204;
+            }
+            try_files $uri /index.html;
+        }
+
+        # Proxy /config requests to the Express config server
+        location /config {
+            proxy_pass http://localhost:3001;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+
+        # Cache static assets
+        location ~* \.(?:ico|css|js|gif|jpe?g|png|woff2?|eot|ttf|otf|svg|map)$ {
+            expires 6M;
+            access_log off;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+        }
+
+        # Prevent caching for service workers
+        location /service-worker.js {
+            root /usr/share/nginx/html;
+            add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate";
+            expires 0;
+            access_log off;
+        }
+
+        # Health check endpoint
+        location /health {
+            access_log off;
+            return 200 'Healthy';
+            add_header Content-Type text/plain;
+        }
+
+        # GZIP Compression
+        gzip on;
+        gzip_types text/css application/javascript application/json application/xml text/plain text/javascript;
+        gzip_min_length 1000;
+        gzip_proxied any;
+        gzip_comp_level 6;
+
+        # Security Headers
+        add_header X-Frame-Options "ALLOW-FROM ${VAPOR_FLOW_ORIGIN}"; # Allow iframe embedding from vapor-flow
+        add_header X-Content-Type-Options "nosniff";
+        add_header X-XSS-Protection "1; mode=block";
+        add_header Referrer-Policy "no-referrer-when-downgrade";
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload";
+
+        # Content Security Policy (CSP)
+        add_header Content-Security-Policy "frame-ancestors 'self' ${VAPOR_FLOW_ORIGIN};";
+
+        # CORS Headers
+        add_header 'Access-Control-Allow-Origin' '${VAPOR_FLOW_ORIGIN}';
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT';
+        add_header 'Access-Control-Allow-Headers' 'Origin, Content-Type, Accept';
+        add_header 'Access-Control-Allow-Credentials' 'true';
+
+        # SameSite Cookies (for iframe embedding)
+        proxy_cookie_path / "/; SameSite=None; Secure";
+
+        # Block access to hidden files
+        location ~ /\. {
+            deny all;
+        }
+    }
+}

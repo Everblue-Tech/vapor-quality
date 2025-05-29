@@ -18,14 +18,31 @@ import {
     putNewProject,
     putNewInstallation,
     useDB,
+    exportDocumentAsJSONObject,
 } from '../utilities/database_utils'
 import EventEmitter from 'events'
+<<<<<<< HEAD
 import { getAuthToken } from '../auth/keycloak'
 import jsPDF from 'jspdf'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 import { S3Config } from './home'
+=======
+import jsPDF from 'jspdf'
+import { measureTypeMapping } from '../templates/templates_config'
+import { getConfig } from '../config'
+import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
 
 PouchDB.plugin(PouchDBUpsert)
+
+export type FormEntry = {
+    id: string
+    process_step_id: string
+    user_id: string
+    form_data: any
+    created_at: string
+    updated_at: string | null
+}
 
 type UpsertAttachment = (
     blob: Blob,
@@ -49,7 +66,10 @@ type Attachments = Record<
 declare global {
     interface Window {
         docData: any
+<<<<<<< HEAD
         docDataMap: Record<string, any>
+=======
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
     }
 }
 
@@ -106,6 +126,8 @@ export type FormEntry = {
     created_at: string
     updated_at: string | null
 }
+
+const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
 
 /**
  * A wrapper component that connects its children to a data store via React Context
@@ -251,12 +273,26 @@ export const StoreProvider: FC<StoreProviderProps> = ({
          */
         ;(async function connectStoreToDB() {
             try {
+<<<<<<< HEAD
                 // Check if the doc already exists before trying to create it
                 const existingDoc = await db.get(docId)
                 revisionRef.current = existingDoc._rev
             } catch (err: any) {
                 if (err.status === 404) {
                     // Only create the doc if it doesn't exist
+=======
+                const normalizedDocId = docId === '0' ? undefined : docId
+
+                // Check if the document already exists
+                let existingDoc: any = null
+                if (normalizedDocId) {
+                    existingDoc = await db
+                        .get(normalizedDocId)
+                        .catch(() => null)
+                }
+
+                if (!existingDoc) {
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                     const result = !isInstallationDoc
                         ? await putNewProject(db, docName, docId)
                         : await putNewInstallation(
@@ -266,6 +302,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                               docName,
                               parentId as string,
                           )
+<<<<<<< HEAD
 
                     if (
                         result &&
@@ -281,6 +318,17 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                         )
                     }
                 }
+=======
+                    revisionRef.current = (
+                        result as unknown as PouchDB.Core.Response
+                    ).rev
+                } else {
+                    revisionRef.current = existingDoc._rev
+                }
+            } catch (err) {
+                console.error('DB initialization error:', err)
+                // TODO: Rethink how best to handle errors
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
             }
 
             // Initialize doc and attachments state from the DB document
@@ -388,6 +436,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
 
     const upsertData: UpsertData = (pathStr, value) => {
         pathStr = 'data_.' + pathStr
+<<<<<<< HEAD
         // create updated doc with new value immutably inserted
         const updatedDoc = immutableUpsert(
             doc,
@@ -427,6 +476,10 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                     console.error('upsert error:', err)
                 })
         }
+=======
+        upsertDoc(pathStr, value)
+        window.docData = doc.data_
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
     }
 
     /**
@@ -628,6 +681,7 @@ export function immutableUpsert(
     return newRecipient
 }
 
+<<<<<<< HEAD
 export const saveProjectAndUploadToS3 = async (projectDoc: any) => {
     try {
         const pdf = new jsPDF()
@@ -816,6 +870,8 @@ export const isFormComplete = (formData: any, metadata?: any): boolean => {
     return true
 }
 
+=======
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
 export function persistSessionState({
     userId,
     applicationId,
@@ -833,6 +889,7 @@ export function persistSessionState({
     if (processStepId) localStorage.setItem('process_step_id', processStepId)
 }
 
+<<<<<<< HEAD
 /**
  * Saves or updates the current form data to the vapor-core backend database (Amazon RDS).
  *
@@ -851,6 +908,125 @@ export function persistSessionState({
  * @param handleFormSelect - optional functino to select the newly created form entry after creation
  * @returns
  */
+=======
+export const updateProcessStepWithMeasure = async ({
+    userId,
+    processId,
+    processStepId,
+    measureName,
+    finalReportDocumentId,
+    jobId,
+}: {
+    userId: string | null
+    processId: string
+    processStepId: string
+    measureName: string
+    finalReportDocumentId: string
+    jobId?: string
+}) => {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data`,
+        {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': userId ?? '',
+            },
+            body: JSON.stringify({
+                add_measure: {
+                    name: measureName,
+                    jobs: [
+                        {
+                            job_id: jobId,
+                            status: 'completed',
+                            final_report_document_id: finalReportDocumentId,
+                        },
+                    ],
+                },
+            }),
+        },
+    )
+
+    if (!response.ok) {
+        throw new Error('Failed to update process step with measure details')
+    }
+
+    return await response.json()
+}
+
+export const closeProcessStepIfAllMeasuresComplete = async (
+    processId: string | null,
+    processStepId: string | null,
+    userId: string | null,
+): Promise<void> => {
+    const expectedMeasureNames: string[] = JSON.parse(
+        localStorage.getItem('measures') || '[]',
+    )
+
+    if (!processId || !processStepId) {
+        console.warn('Missing required identifiers.')
+        return
+    }
+
+    try {
+        const formDataRes = await fetch(
+            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+            {
+                method: 'GET',
+            },
+        )
+
+        if (!formDataRes.ok) {
+            console.error('Failed to fetch form data')
+            return
+        }
+
+        const formJson = await formDataRes.json()
+        const formData = formJson?.data ?? {}
+        const actualMeasures = formData?.measures || []
+
+        const allCompleted = expectedMeasureNames.every(expected => {
+            const actualNames = measureTypeMapping[expected.toLowerCase()] || []
+
+            return actualMeasures.some(
+                (actual: any) =>
+                    actualNames.includes(actual.name) &&
+                    Array.isArray(actual.jobs) &&
+                    actual.jobs.length > 0 &&
+                    actual.jobs.every(
+                        (job: any) => job.status?.toLowerCase() === 'completed',
+                    ),
+            )
+        })
+
+        if (!allCompleted) {
+            console.log('Not all expected measures are marked completed.')
+            return
+        }
+
+        const closeRes = await fetch(
+            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/condition`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-user-id': userId ?? '',
+                },
+                body: JSON.stringify({ condition: 'CLOSED' }),
+            },
+        )
+
+        if (!closeRes.ok) {
+            const errorBody = await closeRes.text()
+            console.error('Failed to close step:', errorBody)
+        } else {
+            console.log('Process step closed successfully.')
+        }
+    } catch (error) {
+        console.error(' Error:', error)
+    }
+}
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
 
 export const saveToVaporCoreDB = async (
     userId: string | null,
@@ -875,8 +1051,11 @@ export const saveToVaporCoreDB = async (
 
     let uploadedDocumentId
 
+<<<<<<< HEAD
     console.log(fileToUpload)
 
+=======
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
     try {
         // if file and valid s3Config provided, upload file to s3
         if (fileToUpload) {
@@ -891,9 +1070,15 @@ export const saveToVaporCoreDB = async (
                             userId,
                             organizationId,
                             documentType: 'quality install photo',
+<<<<<<< HEAD
                         },
                     )
                     console.log(`Uploaded document ID: ${uploadedDocumentId}`)
+=======
+                            measureName: 'project-photo',
+                        },
+                    )
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                     if (uploadedDocumentId) {
                         if (!form_data.documents) {
                             form_data.documents = []
@@ -922,7 +1107,10 @@ export const saveToVaporCoreDB = async (
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
+<<<<<<< HEAD
                             Authorization: `Bearer ${getAuthToken()}`,
+=======
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                         },
                         body: JSON.stringify(formData),
                     },
@@ -939,7 +1127,10 @@ export const saveToVaporCoreDB = async (
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
+<<<<<<< HEAD
                                 Authorization: `Bearer ${getAuthToken()}`,
+=======
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                             },
                             body: JSON.stringify({
                                 id: formId,
@@ -967,7 +1158,10 @@ export const saveToVaporCoreDB = async (
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+<<<<<<< HEAD
                         Authorization: `Bearer ${getAuthToken()}`,
+=======
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                     },
                     body: JSON.stringify(formData),
                 },
@@ -995,3 +1189,124 @@ export const saveToVaporCoreDB = async (
         console.error('Error saving to RDS:', error)
     }
 }
+<<<<<<< HEAD
+=======
+
+export const fetchExistingRDSForm = async (
+    userId: string,
+    processStepId: string,
+): Promise<any | null> => {
+    const response = await fetch(
+        `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+        {
+            method: 'GET',
+        },
+    )
+
+    if (!response.ok) {
+        console.warn('No form data found or error fetching from RDS')
+        return null
+    }
+
+    const data = await response.json()
+    if (data.success && data.forms?.length > 0) {
+        return data.forms[0] // each process/process_step only has 1 project entry
+    }
+
+    return null
+}
+
+function base64ToBlob(base64: string, contentType: string): Blob {
+    const byteCharacters = atob(base64)
+    const byteNumbers = new Array(byteCharacters.length)
+    for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i)
+    }
+    const byteArray = new Uint8Array(byteNumbers)
+    return new Blob([byteArray], { type: contentType })
+}
+
+export const hydrateFromRDS = async (rdsEntry: any, db: PouchDB.Database) => {
+    try {
+        if (!rdsEntry || !rdsEntry.form_data) {
+            console.warn('No form_data found in RDS entry, skipping hydration.')
+            return
+        }
+
+        // Check if project already exists
+        const existing = await db.allDocs({ include_docs: true })
+        const projectExists = existing.rows.some(doc =>
+            doc.id.startsWith('project_'),
+        )
+
+        if (projectExists) {
+            console.log(
+                'Local PouchDB already populated with project document.',
+            )
+            return
+        }
+
+        const RESERVED_KEYS = new Set(['_id', '_rev', '_attachments'])
+        const importedDocs: Record<string, any> = {}
+        const childrenIds: string[] = []
+
+        for (const [docId, docBody] of Object.entries(rdsEntry.form_data) as [
+            string,
+            Record<string, any>,
+        ][]) {
+            if (!docId || typeof docBody !== 'object' || docBody === null)
+                continue
+            if (RESERVED_KEYS.has(docId)) continue
+
+            const idToUse = docBody._id || docId
+            if (!idToUse) continue
+
+            const { _attachments, ...docWithoutAttachments } = docBody
+            await db.put({ ...docWithoutAttachments, _id: idToUse })
+            importedDocs[idToUse] = docBody
+
+            // Put attachments if they exist
+            if (_attachments) {
+                for (const [attachmentId, attachment] of Object.entries(
+                    _attachments,
+                ) as [string, { data: string; content_type: string }][]) {
+                    const blob = base64ToBlob(
+                        attachment.data,
+                        attachment.content_type,
+                    )
+                    await db.putAttachment(
+                        idToUse,
+                        attachmentId,
+                        blob,
+                        attachment.content_type,
+                    )
+                }
+            }
+
+            // track install docs (everything that's not metadata_ or data_)
+            if (!['metadata_', 'data_'].includes(idToUse)) {
+                childrenIds.push(idToUse)
+            }
+        }
+
+        // add top-level project document that links to metadata_ and data_
+        const projectId = `project_${rdsEntry.id}`
+        const projectDoc = {
+            _id: projectId,
+            metadata_: importedDocs['metadata_'],
+            data_: importedDocs['data_'],
+            children: childrenIds,
+        }
+
+        await db.put(projectDoc)
+
+        if (rdsEntry.id) {
+            localStorage.setItem('form_id', rdsEntry.id)
+        }
+
+        console.log(`Hydrated project into PouchDB: ${projectId}`)
+    } catch (err) {
+        console.error('Error hydrating from RDS:', err)
+    }
+}
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809

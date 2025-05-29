@@ -2,13 +2,8 @@ import { FC, useContext, useEffect, useState } from 'react'
 import { Button } from 'react-bootstrap'
 import type { MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useDB } from '../utilities/database_utils'
-import {
-    saveProjectAndUploadToS3,
-    isFormComplete,
-    saveToVaporCoreDB,
-    StoreContext,
-} from './store'
+import { exportDocumentAsJSONObject, useDB } from '../utilities/database_utils'
+import { saveToVaporCoreDB } from './store'
 
 interface SaveCancelButtonProps {
     id: string
@@ -43,9 +38,6 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const [buttonLabel, setButtonLabel] = useState<String>('Save Project')
     const db = useDB()
 
-    const { setSelectedFormId, handleFormSelect, s3Config } =
-        useContext(StoreContext)
-
     const handleCancelButtonClick = async (
         event: MouseEvent<HTMLButtonElement>,
     ) => {
@@ -60,44 +52,23 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const handleSaveClick = async () => {
         try {
             const projectDoc: any = await db.get(id)
-
             if (!projectDoc.metadata_ || !projectDoc.metadata_.doc_name) {
                 alert('Please enter a project name before saving.')
                 return
             }
 
-            const resolvedFormId = localStorage.getItem('form_id')
+            const userId = localStorage.getItem('user_id')
+            const processStepId = localStorage.getItem('process_step_id')
 
-            if (!window.docData || Object.keys(window.docData).length === 0) {
-                alert(
-                    'Cannot save an empty form. Please fill out some fields first.',
-                )
-                return
-            }
-
-            const user_id = localStorage.getItem('user_id')
-            const process_step_id = localStorage.getItem('process_step_id')
-
-            const attachmentKeys = Object.keys(projectDoc._attachments || {})
-            let fileToUpload: Blob | File | undefined = undefined
-
-            if (attachmentKeys.length > 0) {
-                const attachmentId = attachmentKeys[0]
-                const attachmentBlob = await db.getAttachment(id, attachmentId)
-
-                if (attachmentBlob instanceof Blob) {
-                    fileToUpload = attachmentBlob
-                }
-            }
-
-            await saveToVaporCoreDB(
-                user_id,
-                process_step_id,
-                window.docData,
-                setSelectedFormId,
-                handleFormSelect,
-                fileToUpload,
+            // Export form_data from local PouchDB
+            const form_data_json = await exportDocumentAsJSONObject(
+                db,
+                id,
+                false,
             )
+            const form_data = JSON.parse(form_data_json)?.all_docs ?? {}
+
+            await saveToVaporCoreDB(userId, processStepId, form_data)
 
             updateValue('created')
             navigate('/', { replace: true })

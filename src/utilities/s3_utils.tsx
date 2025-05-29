@@ -3,21 +3,31 @@ import {
     PutObjectCommand,
     GetObjectCommand,
 } from '@aws-sdk/client-s3'
-import { getAuthToken } from '../auth/keycloak'
+import { getConfig } from '../config'
+
+const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
+const REACT_APP_AWS_S3_BUCKET_USER_KEY = getConfig(
+    'REACT_APP_AWS_S3_BUCKET_USER_KEY',
+)
+const REACT_APP_AWS_S3_BUCKET_USER_SECRET = getConfig(
+    'REACT_APP_AWS_S3_BUCKET_USER_SECRET',
+)
+const REACT_APP_AWS_REGION = getConfig('REACT_APP_AWS_REGION')
+const REACT_APP_AWS_S3_BUCKET = getConfig('REACT_APP_AWS_S3_BUCKET')
+const REACT_APP_AWS_S3_KMS_KEY_ID = getConfig('REACT_APP_AWS_S3_KMS_KEY_ID')
 
 export async function fetchDocumentTypes(documentType: string) {
     try {
         const response = await fetch(
-            `http://localhost:5000/api/documents/types`,
+            `${REACT_APP_VAPORCORE_URL}/api/documents/types`,
         )
         if (!response.ok) {
             throw new Error('Failed to fetch document types.')
         }
         const typeData = await response.json()
-        console.log(typeData)
         const documentTypeObject = typeData.data.find(
             (type: { name: string }) =>
-                type.name.toLowerCase() === documentType,
+                type.name.toLowerCase() === documentType.toLowerCase(),
         )
         if (documentTypeObject) {
             return documentTypeObject.id
@@ -34,11 +44,13 @@ export async function uploadImageToS3AndCreateDocument({
     userId,
     organizationId,
     documentType,
+    measureName,
 }: {
     file: File | Blob
-    userId: string
-    organizationId: string
+    userId: string | null
+    organizationId: string | null
     documentType: string
+    measureName: string
 }) {
     if (!file) throw new Error('No file provided')
 
@@ -46,18 +58,18 @@ export async function uploadImageToS3AndCreateDocument({
     const documentTypeId = await fetchDocumentTypes(documentType)
 
     if (
-        !process.env.REACT_APP_AWS_S3_BUCKET_USER_KEY ||
-        !process.env.REACT_APP_AWS_S3_BUCKET_USER_SECRET
+        !REACT_APP_AWS_S3_BUCKET_USER_KEY ||
+        !REACT_APP_AWS_S3_BUCKET_USER_SECRET
     ) {
         throw new Error('Missing AWS S3 credentials in environment variables')
     }
 
     // upload the file to S3
     const s3Client = new S3Client({
-        region: process.env.REACT_APP_AWS_REGION,
+        region: REACT_APP_AWS_REGION,
         credentials: {
-            accessKeyId: process.env.REACT_APP_AWS_S3_BUCKET_USER_KEY,
-            secretAccessKey: process.env.REACT_APP_AWS_S3_BUCKET_USER_SECRET,
+            accessKeyId: REACT_APP_AWS_S3_BUCKET_USER_KEY,
+            secretAccessKey: REACT_APP_AWS_S3_BUCKET_USER_SECRET,
         },
     })
 
@@ -66,33 +78,36 @@ export async function uploadImageToS3AndCreateDocument({
             ? file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
             : `upload_${Date.now()}`
 
-    const s3Key = `quality-install/photos/${Date.now()}_${sanitizedFileName}`
+    // normalize & convert measure name to kebab-case
+    const sanitizedMeasureName = measureName.toLowerCase().replace(/\s+/g, '-')
+
+    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${Date.now()}_${sanitizedFileName}`
 
     const putObjectCommand = new PutObjectCommand({
-        Bucket: process.env.REACT_APP_AWS_S3_BUCKET,
+        Bucket: REACT_APP_AWS_S3_BUCKET,
         Key: s3Key,
         Body: new Uint8Array(await file.arrayBuffer()),
-        ContentType: sanitizedFileName.toLowerCase().endsWith('pdf')
-            ? 'application/pdf'
-            : sanitizedFileName.toLowerCase().endsWith('svg')
-              ? 'image/svg+xml'
-              : 'image/jpeg',
+        ContentType:
+            file instanceof File && file.type
+                ? file.type
+                : file instanceof Blob && file.type
+                  ? file.type
+                  : 'application/octet-stream',
         ServerSideEncryption: 'aws:kms',
-        SSEKMSKeyId: process.env.REACT_APP_AWS_S3_KMS_KEY_ID,
+        SSEKMSKeyId: REACT_APP_AWS_S3_KMS_KEY_ID,
     })
 
     await s3Client.send(putObjectCommand)
 
-    const s3Path = `s3://${process.env.REACT_APP_AWS_S3_BUCKET}/${s3Key}`
+    const s3Path = `s3://${REACT_APP_AWS_S3_BUCKET}/${s3Key}`
 
     // create a document in vapor-core
     const documentResponse = await fetch(
-        `http://localhost:5000/api/documents/create`,
+        `${REACT_APP_VAPORCORE_URL}/api/documents/create`,
         {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${getAuthToken()}`,
             },
             body: JSON.stringify({
                 user_id: userId,

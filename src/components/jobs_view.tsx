@@ -7,6 +7,7 @@ import templatesConfig from '../templates/templates_config'
 import { LinkContainer } from 'react-router-bootstrap'
 import { useParams } from 'react-router-dom'
 import { useDB } from '../utilities/database_utils'
+import { useNavigate } from 'react-router-dom'
 
 const StringInputModal = lazy(() => import('./string_input_modal'))
 
@@ -32,6 +33,7 @@ const JobList: React.FC = () => {
     const [selectedJobNameToDelete, setSelectedJobNameToDelete] = useState('')
 
     const [projectInfo, setProjectInfo] = useState<any>({})
+    const navigate = useNavigate()
 
     // Retrieves the project information which includes project name and installation address
     const project_info = async (): Promise<void> => {
@@ -147,16 +149,24 @@ const JobList: React.FC = () => {
         // adding a new job here
         const docName = input
         if (docName !== null) {
-            // Dynamically import the function when needed
-            const { putNewInstallation } = await import(
-                '../utilities/database_utils'
+            const { putNewInstallation, getOrCreateJobForProject } =
+                await import('../utilities/database_utils')
+
+            const jobId = await getOrCreateJobForProject(
+                db,
+                projectId as string,
             )
+<<<<<<< HEAD
             const response = await putNewInstallation(
+=======
+
+            const newJob = await putNewInstallation(
+>>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                 db,
                 '',
                 workflowName as string,
                 docName,
-                projectId as string,
+                jobId,
             )
             console.log('RESPONSE', response)
             const updatedProjectDoc = await db.get(projectId as string)
@@ -165,6 +175,7 @@ const JobList: React.FC = () => {
                 updatedProjectDoc.children,
             )
         }
+
         // Refresh the job list after adding the new job
         await retrieveJobs()
     }
