@@ -4,6 +4,7 @@ import React, {
     useEffect,
     SetStateAction,
     useRef,
+    useContext,
 } from 'react'
 import { ListGroup, Button, Modal } from 'react-bootstrap'
 import { LinkContainer } from 'react-router-bootstrap'
@@ -12,8 +13,9 @@ import { useNavigate } from 'react-router-dom'
 import { deleteEmptyProjects, useDB } from '../utilities/database_utils'
 import ImportDoc from './import_document_wrapper'
 import ExportDoc from './export_document_wrapper'
-import { persistSessionState } from './store'
+import { persistSessionState, StoreContext } from './store'
 import { getConfig } from '../config'
+import { hydratePhotoFromDocumentId } from '../utilities/s3_utils'
 
 /**
  * Home:  Renders the Home page for the APP
@@ -40,10 +42,10 @@ const Home: FC = () => {
     const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
     const REACT_APP_VAPORFLOW_URL = getConfig('REACT_APP_VAPORFLOW_URL')
 
+    const { upsertAttachment } = useContext(StoreContext)
+
     // listen for postMessage from the parent window (vapor-flow) to initialize form metadata
-    useEffect(() => {
-        window.parent.postMessage({ type: 'REQUEST_INIT_FORM_DATA' }, '*')
-    }, [])
+    window.parent.postMessage({ type: 'REQUEST_INIT_FORM_DATA' }, '*')
 
     useEffect(() => {
         const allowedOrigin = REACT_APP_VAPORFLOW_URL
@@ -90,6 +92,14 @@ const Home: FC = () => {
         persistSessionState({ userId, applicationId, processId, processStepId })
     }, [userId, applicationId, processId, processStepId])
 
+    useEffect(() => {
+        if (userId && processStepId && !hasHydratedRef.current) {
+            hydrateFromRDS().then(() => {
+                hasHydratedRef.current = true
+            })
+        }
+    }, [userId, processStepId])
+
     const retrieveProjectInfo = async (): Promise<void> => {
         // Dynamically import the function when needed
         const { retrieveProjectDocs } = await import(
@@ -97,6 +107,8 @@ const Home: FC = () => {
         )
 
         retrieveProjectDocs(db).then(res => {
+            console.log('[retrieveProjectInfo] Loaded from PouchDB:', res)
+
             setProjectList(res)
             sortByEditTime(res)
         })
@@ -108,7 +120,98 @@ const Home: FC = () => {
 
     useEffect(() => {
         retrieveProjectInfo()
-    }, [projectList]) // Fetch the project details from DB as the state variable projectList is updated
+    }, []) // Fetch the project details from DB as the state variable projectList is updated
+
+    const hydrateFromRDS = async () => {
+        if (!userId || !processStepId) return
+
+        setIsHydrating(true)
+
+        try {
+            const response = await fetch(
+                `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+            )
+
+            if (!response.ok) {
+                const err = await response.json()
+                console.warn('No saved form data:', err)
+                return
+            }
+
+            const result = await response.json()
+            const rdsProjects = result.forms
+            console.log('[hydrateFromRDS] Retrieved from RDS:', rdsProjects)
+
+            for (const entry of rdsProjects) {
+                const exists = await db.get(entry.id).catch(() => null)
+                if (!exists) {
+                    const formData = entry.form_data
+                    if (!formData?.metadata_ || !formData?.data_) {
+                        console.warn(
+                            '[hydrateFromRDS] Skipped incomplete form data:',
+                            entry.id,
+                        )
+                        continue
+                    }
+
+                    const docToInsert = {
+                        _id: entry.id,
+                        metadata_: formData.metadata_,
+                        data_: formData.data_,
+                        type: 'project',
+                    }
+
+                    try {
+                        const result = await db.put(docToInsert)
+                        console.log(
+                            '[hydrateFromRDS] Successfully wrote doc:',
+                            result,
+                        )
+                        const attachments =
+                            docToInsert?.metadata_?.attachments || {}
+
+                        console.log('attachments', attachments)
+
+                        for (const [attachmentId, meta] of Object.entries(
+                            attachments,
+                        ) as [string, { documentId: string }][]) {
+                            if (meta?.documentId) {
+                                console.log(
+                                    'Hydrating attachment',
+                                    attachmentId,
+                                    meta.documentId,
+                                )
+
+                                await hydratePhotoFromDocumentId({
+                                    documentId: meta.documentId,
+                                    attachmentId,
+                                    upsertAttachment,
+                                })
+                            }
+                        }
+                    } catch (e) {
+                        console.error(
+                            '[hydrateFromRDS] Failed to write doc:',
+                            entry.id,
+                            e,
+                        )
+                    }
+                } else {
+                    console.log(
+                        '[hydrateFromRDS] Skipped existing doc:',
+                        entry.id,
+                    )
+                }
+            }
+
+            hasHydratedRef.current = true
+            await retrieveProjectInfo()
+        } catch (e) {
+            console.error('Error hydrating from RDS:', e)
+        } finally {
+            setIsHydrating(false)
+        }
+    }
 
     const handleAddJob = async () => {
         // Dynamically import the function when needed

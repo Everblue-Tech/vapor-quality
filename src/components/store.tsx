@@ -654,3 +654,72 @@ export const closeProcessStepIfAllMeasuresComplete = async (
         console.error(' Error:', error)
     }
 }
+
+export async function saveProjectToRDS({
+    userId,
+    processStepId,
+    formData,
+    docId,
+}: {
+    userId: string
+    processStepId: string
+    formData: any
+    docId: string
+}) {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/quality-install`,
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                process_step_id: processStepId,
+                id: docId,
+                form_data: formData,
+            }),
+        },
+    )
+
+    if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to save project info to RDS')
+    }
+
+    return await response.json()
+}
+
+export async function getProjectsFromRDS(
+    userId: string,
+    processStepId: string,
+) {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+    )
+
+    if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to fetch project data from RDS')
+    }
+
+    const result = await response.json()
+    return result.forms
+}
+
+export async function fetchDocumentMetadata(
+    documentId: string,
+): Promise<string | null> {
+    const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
+
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
+    )
+    if (!response.ok) {
+        console.warn(`[fetchDocumentMetadata] Failed for ${documentId}`)
+        return null
+    }
+
+    const result = await response.json()
+    return result?.data?.file_path || null
+}
