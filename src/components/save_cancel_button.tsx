@@ -83,7 +83,14 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                             projectDoc.metadata_?.doc_name || 'unknown',
                     })
 
+                    // re-extract geolocation data
+                    const { getMetadataFromPhoto } = await import(
+                        '../utilities/photo_utils'
+                    )
+                    const photoMetadata = await getMetadataFromPhoto(blob)
+
                     updatedMetadata.attachments[attachmentId] = {
+                        ...photoMetadata,
                         documentId,
                         timestamp: new Date().toISOString(),
                     }
@@ -100,6 +107,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
 
             // send the full form data to RDS
             const updatedDoc = await db.get(id)
+            console.log(updatedDoc)
             const formData = {
                 metadata_: updatedDoc.metadata_,
                 data_: updatedDoc.data_,
