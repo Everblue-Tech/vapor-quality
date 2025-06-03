@@ -19,6 +19,31 @@ import {
 } from './store'
 import { getConfig } from '../config'
 
+// Define interface for the initialization data
+interface InitFormData {
+    user_id: string
+    application_id: string
+    step_id: string
+    process_id: string
+    organization_id: string
+    measures: string[]
+    // Add fields that should prefill the form
+    project_name?: string
+    street_address?: string
+    city?: string
+    state?: string
+    zip_code?: string
+    technician_name?: string
+    installation_company?: string
+    company_address?: string
+    company_phone?: string
+    company_email?: string
+    applicant_first_name?: string
+    applicant_last_name?: string
+    applicant_email?: string
+    applicant_phone?: string
+}
+
 /**
  * Home:  Renders the Home page for the APP
  *
@@ -36,12 +61,13 @@ const Home: FC = () => {
     const [applicationId, setApplicationId] = useState<string | null>(null)
     const [processStepId, setProcessStepId] = useState<string | null>(null)
     const [processId, setProcessId] = useState<string | null>(null)
+    const [formPrefillData, setFormPrefillData] = useState<
+        Partial<InitFormData>
+    >({})
     const hasHydratedRef = useRef(false)
     const [isHydrating, setIsHydrating] = useState(false)
 
     const db = useDB()
-    const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
-    const [s3Config, setS3Config] = useState<S3Config | null>(null)
 
     const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
     const REACT_APP_VAPORFLOW_URL = getConfig('REACT_APP_VAPORFLOW_URL')
@@ -64,31 +90,66 @@ const Home: FC = () => {
             }
 
             if (event.data?.type === 'INIT_FORM_DATA') {
-                const {
-                    user_id,
-                    application_id,
-                    step_id,
-                    process_id,
-                    organization_id,
-                    measures,
-                } = event.data.payload
+                const payload = event.data.payload as InitFormData
 
-                localStorage.setItem('user_id', user_id)
-                localStorage.setItem('application_id', application_id)
-                localStorage.setItem('process_step_id', step_id)
-                localStorage.setItem('process_id', process_id)
-                localStorage.setItem('organization_id', organization_id)
-                localStorage.setItem('measures', JSON.stringify(measures))
+                // Store basic session data
+                localStorage.setItem('user_id', payload.user_id)
+                localStorage.setItem('application_id', payload.application_id)
+                localStorage.setItem('process_step_id', payload.step_id)
+                localStorage.setItem('process_id', payload.process_id)
+                localStorage.setItem('organization_id', payload.organization_id)
+                localStorage.setItem(
+                    'measures',
+                    JSON.stringify(payload.measures),
+                )
 
-                setUserId(user_id)
-                setApplicationId(application_id)
-                setProcessStepId(step_id)
-                setProcessId(process_id)
+                // Store prefill data
+                const prefillData: Partial<InitFormData> = {
+                    project_name: payload.project_name,
+                    street_address: payload.street_address,
+                    city: payload.city,
+                    state: payload.state,
+                    zip_code: payload.zip_code,
+                    technician_name: payload.technician_name,
+                    installation_company: payload.installation_company,
+                    company_address: payload.company_address,
+                    company_phone: payload.company_phone,
+                    company_email: payload.company_email,
+                    applicant_first_name: payload.applicant_first_name,
+                    applicant_last_name: payload.applicant_last_name,
+                    applicant_email: payload.applicant_email,
+                    applicant_phone: payload.applicant_phone,
+                }
+
+                // Store prefill data in localStorage for persistence
+                localStorage.setItem(
+                    'form_prefill_data',
+                    JSON.stringify(prefillData),
+                )
+
+                setUserId(payload.user_id)
+                setApplicationId(payload.application_id)
+                setProcessStepId(payload.step_id)
+                setProcessId(payload.process_id)
+                setFormPrefillData(prefillData)
             }
         }
 
         window.addEventListener('message', handleMessage)
         return () => window.removeEventListener('message', handleMessage)
+    }, [])
+
+    // Load prefill data from localStorage on component mount
+    useEffect(() => {
+        const storedPrefillData = localStorage.getItem('form_prefill_data')
+        if (storedPrefillData) {
+            try {
+                const parsedData = JSON.parse(storedPrefillData)
+                setFormPrefillData(parsedData)
+            } catch (error) {
+                console.error('Error parsing stored prefill data:', error)
+            }
+        }
     }, [])
 
     useEffect(() => {
@@ -121,6 +182,7 @@ const Home: FC = () => {
     }, [userId, applicationId, processId, processStepId])
 
     const retrieveProjectInfo = async (): Promise<void> => {
+        // Dynamically import the function when needed
         const { retrieveProjectDocs } = await import(
             '../utilities/database_utils'
         )
@@ -132,288 +194,84 @@ const Home: FC = () => {
     }
 
     useEffect(() => {
-        window.parent.postMessage({ type: 'REQUEST_INIT_FORM_DATA' }, '*')
-    }, [])
-
-    useEffect(() => {
-        function handleMessage(event: MessageEvent) {
-            if (event.origin !== 'http://localhost:3000') return // need to adjust for dev/prod
-
-            if (event.data?.type === 'INIT_FORM_DATA') {
-                const {
-                    user_id,
-                    application_id,
-                    step_id,
-                    process_id,
-                    organization_id,
-                    s3Config,
-                } = event.data.payload
-
-                if (
-                    user_id &&
-                    application_id &&
-                    step_id &&
-                    process_id &&
-                    organization_id &&
-                    s3Config
-                ) {
-                    localStorage.setItem('user_id', user_id)
-                    localStorage.setItem('application_id', application_id)
-                    localStorage.setItem('process_step_id', step_id)
-                    localStorage.setItem('process_id', process_id)
-                    localStorage.setItem('organization_id', organization_id)
-
-                    setUserId(user_id)
-                    setApplicationId(application_id)
-                    setProcessStepId(step_id)
-                    setProcessId(process_id)
-                }
-            }
-        }
-
-        window.addEventListener('message', handleMessage)
-
-        return () => window.removeEventListener('message', handleMessage)
-    }, [])
-
-    useEffect(() => {
-        const fetchForms = async () => {
-            const userId = localStorage.getItem('user_id')
-            const processStepId = localStorage.getItem('process_step_id')
-            if (!userId || !processStepId) return
-
-            try {
-                const response = await fetch(
-                    `/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
-                    {
-                        headers: { Authorization: `Bearer ${getAuthToken()}` },
-                    },
-                )
-
-                const data = await response.json()
-
-                if (data.success && Array.isArray(data.forms)) {
-                    window.docDataMap = {}
-
-                    data.forms.forEach((form: FormEntry) => {
-                        window.docDataMap[form.id] = form.form_data
-                    })
-
-                    const transformed = data.forms.map((form: FormEntry) => ({
-                        _id: form.id,
-                        metadata_: {
-                            doc_name:
-                                form.form_data?.installer?.company_name ||
-                                'Untitled',
-                            form_id: form.id,
-                        },
-                        data_: form.form_data,
-                    }))
-
-                    for (const doc of transformed) {
-                        let inserted = false
-                        let tries = 0
-
-                        while (!inserted && tries < 3) {
-                            try {
-                                const existing = await db.get(doc._id)
-
-                                inserted = true
-                            } catch (err: any) {
-                                if (err.status === 404) {
-                                    try {
-                                        await db.put(doc)
-                                        inserted = true
-                                    } catch (putErr: any) {
-                                        if (putErr.status === 409) {
-                                            console.warn(
-                                                `Conflict during initial insert, retrying...`,
-                                            )
-                                            tries++
-                                            continue
-                                        } else {
-                                            console.error(
-                                                'Error putting doc:',
-                                                putErr,
-                                            )
-                                            inserted = true
-                                        }
-                                    }
-                                } else if (err.status === 409) {
-                                    console.warn(
-                                        `Conflict while checking doc existence, retrying...`,
-                                    )
-                                    tries++
-                                    continue
-                                } else {
-                                    console.error(
-                                        'Unexpected error checking doc existence:',
-                                        err,
-                                    )
-                                    inserted = true
-                                }
-                            }
-                        }
-
-                        if (!inserted) {
-                            console.error(
-                                `Failed to insert document ${doc._id} after ${tries} attempts.`,
-                            )
-                        }
-                    }
-
-                    setFormEntries(data.forms)
-                    setProjectList(transformed)
-                }
-            } catch (error) {
-                console.error('Error fetching or inserting forms:', error)
-            }
-        }
-
-        fetchForms()
-    }, [userId, processStepId])
-
-    useEffect(() => {
-        persistSessionState({ userId, applicationId, processId, processStepId })
-    }, [userId, applicationId, processId, processStepId])
-
-    useEffect(() => {
-        const savedUserId = localStorage.getItem('user_id')
-        const savedApplicationId = localStorage.getItem('application_id')
-        const savedProcessId = localStorage.getItem('process_id')
-        const savedProcessStepId = localStorage.getItem('process_step_id')
-
-        if (savedUserId) setUserId(savedUserId)
-        if (savedApplicationId) setApplicationId(savedApplicationId)
-        if (savedProcessId) setProcessId(savedProcessId)
-        if (savedProcessStepId) setProcessStepId(savedProcessStepId)
-    }, [])
-
-    useEffect(() => {
         deleteEmptyProjects(db)
     }, [])
 
     useEffect(() => {
-        if (!db) return
         retrieveProjectInfo()
     }, []) // Only run once on mount
 
-    const handleFormSelect = (form: FormEntry | null) => {
-        if (!window.docDataMap) window.docDataMap = {}
+    const handleAddJob = async () => {
+        // Dynamically import the function when needed
+        const { putNewProject } = await import('../utilities/database_utils')
 
-        if (form) {
-            setSelectedFormId(form.id)
-            localStorage.setItem('form_id', form.id)
+        // Create project name from prefill data if available
+        const projectName =
+            formPrefillData.project_name ||
+            `${formPrefillData.applicant_first_name || ''} ${formPrefillData.applicant_last_name || ''}`.trim() ||
+            formPrefillData.street_address ||
+            'New Project'
 
-            window.docDataMap[form.id] = form.form_data
-            window.docData = form.form_data
-        } else {
-            setSelectedFormId(null)
-            localStorage.removeItem('form_id')
-            window.docData = {}
-            console.warn('Deselected form or selected form was null')
+        const updatedDBDoc: any = await putNewProject(db, projectName, '')
+
+        // If we have prefill data, immediately populate the project
+        if (updatedDBDoc && Object.keys(formPrefillData).length > 0) {
+            await prefillNewProject(updatedDBDoc.id)
         }
+
+        // Refresh the project list after adding the new project
+        await retrieveProjectInfo()
+        if (updatedDBDoc) editAddressDetails(updatedDBDoc.id)
     }
 
-    // const handleAddJob = async () => {
+    const prefillNewProject = async (projectId: string) => {
+        try {
+            const projectDoc = await db.get(projectId)
 
-    //     const { putNewProject } = await import('../utilities/database_utils')
-    //     const formId =
-    //         prefillFormHardcodedProject(handleFormSelect) || crypto.randomUUID()
+            // Structure the prefill data according to your form structure
+            const prefillStructure = {
+                data_: {
+                    project_info: {
+                        project_name: formPrefillData.project_name || '',
+                    },
+                    installer_info: {
+                        technician_name: formPrefillData.technician_name || '',
+                        installation_company:
+                            formPrefillData.installation_company || '',
+                        company_address: formPrefillData.company_address || '',
+                        company_phone: formPrefillData.company_phone || '',
+                        company_email: formPrefillData.company_email || '',
+                    },
+                    location: {
+                        street_address: formPrefillData.street_address || '',
+                        city: formPrefillData.city || '',
+                        state: formPrefillData.state || '',
+                        zip_code: formPrefillData.zip_code || '',
+                    },
+                    applicant_info: {
+                        first_name: formPrefillData.applicant_first_name || '',
+                        last_name: formPrefillData.applicant_last_name || '',
+                        email: formPrefillData.applicant_email || '',
+                        phone: formPrefillData.applicant_phone || '',
+                    },
+                },
+                metadata_: {
+                    ...projectDoc.metadata_,
+                    prefilled: true,
+                    prefill_timestamp: new Date().toISOString(),
+                },
+            }
 
-    //     if (formId) {
-    //         setSelectedFormId(formId)
-    //     }
+            // Update the project document with prefilled data
+            const updatedDoc = {
+                ...projectDoc,
+                ...prefillStructure,
+            }
 
-    //     // If form wasn't prefilled, fall back to blank defaults
-    //     if (!window.docData || Object.keys(window.docData).length === 0) {
-    //         window.docData = {
-    //             location: {
-    //                 city: '',
-    //                 state: '',
-    //                 zip_code: '',
-    //                 street_address: '',
-    //             },
-    //             installer: {
-    //                 name: '',
-    //                 email: '',
-    //                 phone: '',
-    //                 company_name: '',
-    //                 mailing_address: '',
-    //             },
-    //         }
-    //     }
-
-    //     window.docDataMap = window.docDataMap || {}
-    //     window.docDataMap[formId] = window.docData
-
-    //     // ✅ This is what makes it actually show up in the UI
-    //     await db.upsert(formId, (doc: any) => {
-    //         return {
-    //             ...doc,
-    //             data_: window.docData,
-    //             metadata_: {
-    //                 ...(doc.metadata_ || {}),
-    //                 form_id: formId,
-    //             },
-    //         }
-    //     })
-
-    //     const newProjectDoc = await putNewProject(db, '', formId)
-    //     if (newProjectDoc) {
-    //         await retrieveProjectInfo()
-    //         editAddressDetailsDirect(newProjectDoc.id, formId)
-    //     }
-    // }
-    const handleAddJob = async () => {
-        const { putNewProject } = await import('../utilities/database_utils')
-        const formId = crypto.randomUUID()
-
-        const formData = {
-            selectedProgram: 'HEAR',
-            location: {
-                street_address: '2001 East Dixon Boulevard',
-                city: 'Shelby',
-                state: 'NC',
-                zip_code: '28152',
-            },
-            installer: {
-                name: 'maxine meurer',
-                email: 'maxine@everblue.com',
-                phone: '9999999999',
-                company_name: 'Everblue Energy',
-                mailing_address: '1234 Main St, Shelby, NC',
-            },
-        }
-
-        window.docData = formData
-        window.docDataMap = window.docDataMap || {}
-        window.docDataMap[formId] = formData
-
-        await db.upsert(formId, (doc: any) => ({
-            ...doc,
-            data_: formData,
-            metadata_: {
-                ...(doc.metadata_ || {}),
-                form_id: formId,
-            },
-        }))
-
-        handleFormSelect({
-            id: formId,
-            form_data: formData,
-            user_id: 'f46c6d3f-658b-45d8-b146-d2fa985233c7',
-            process_step_id: '6a92a670-f953-47e2-8ac5-545746b3d244',
-            created_at: new Date().toISOString(),
-            updated_at: null,
-        })
-
-        setSelectedFormId(formId)
-
-        const newProjectDoc = await putNewProject(db, '', formId)
-        if (newProjectDoc) {
-            await retrieveProjectInfo()
-            editAddressDetailsDirect(newProjectDoc.id, formId)
+            await db.put(updatedDoc)
+            console.log('Project prefilled with data:', prefillStructure)
+        } catch (error) {
+            console.error('Error prefilling project:', error)
         }
     }
 
@@ -424,54 +282,32 @@ const Home: FC = () => {
 
     const confirmDeleteJob = async () => {
         try {
-            if (!selectedProjectToDelete) {
-                console.warn('No project selected to delete.')
-                return
-            }
+            // delete the selected project
             const projectDoc: any = await db.get(selectedProjectToDelete)
 
-            const response = await fetch(
-                `http://localhost:5000/api/quality-install/${selectedProjectToDelete}`,
-                {
-                    method: 'DELETE',
-                    headers: { Authorization: `Bearer ${getAuthToken()}` },
-                },
-            )
+            const installDocs: any = await db.allDocs({
+                keys: projectDoc.children,
+                include_docs: true,
+            })
 
-            if (!response.ok) {
-                console.error('Failed to delete form from backend')
-            } else {
-                console.log('Deleted form from vapor-core successfully')
+            // Filter jobs/installations linked to the projects and mark for deletion
+            const docsToDelete: any = installDocs.rows
+                .filter((row: { doc: any }) => !!row.doc) // Filter out rows without a document
+                .map((row: { doc: { _id: any; _rev: any } }) => ({
+                    _deleted: true,
+                    _id: row.doc?._id,
+                    _rev: row.doc?._rev,
+                }))
+
+            // performing bulk delete of jobs/installation doc
+            if (docsToDelete.length > 0) {
+                const deleteResult = await db.bulkDocs(docsToDelete)
             }
-
-            if (projectDoc?.children?.length > 0) {
-                const installDocs = await db.allDocs({
-                    keys: projectDoc.children,
-                    include_docs: true,
-                })
-
-                const docsToDelete = installDocs.rows
-                    .filter((row: { doc: any }) => !!row.doc)
-                    .map((row: { doc: { _id: any; _rev: any } }) => ({
-                        _id: row.doc._id,
-                        _rev: row.doc._rev,
-                        _deleted: true,
-                    }))
-
-                if (docsToDelete.length > 0) {
-                    console.log(
-                        'Deleting child installation docs:',
-                        docsToDelete,
-                    )
-                    await db.bulkDocs(docsToDelete)
-                }
-            }
-
+            // Deleting the project document
             await db.remove(projectDoc)
 
-            setProjectList(prev =>
-                prev.filter(p => p._id !== selectedProjectToDelete),
-            )
+            //Refresh the project list after deletion
+            await retrieveProjectInfo()
         } catch (error) {
             console.error('Error deleting project doc:', error)
         } finally {
@@ -513,40 +349,8 @@ const Home: FC = () => {
         setSelectedProjectToDelete('')
     }
 
-    const editAddressDetailsDirect = (projectID: string, formId: string) => {
-        const selectedForm: FormEntry = {
-            id: formId,
-            user_id: userId!,
-            process_step_id: processStepId!,
-            form_data: window.docData,
-            created_at: new Date().toISOString(),
-            updated_at: null,
-        }
-
-        localStorage.setItem('form_id', formId)
-        handleFormSelect(selectedForm)
+    const editAddressDetails = (projectID: string) => {
         navigate('app/' + projectID, { replace: true })
-    }
-
-    const editAddressDetails = async (projectID: string) => {
-        const matchingProject = projectList.find(
-            project => project._id === projectID,
-        )
-        const formId = matchingProject?.metadata_?.form_id
-
-        if (!formId) {
-            console.error('Form ID not found for project:', projectID)
-            return
-        }
-
-        const selectedForm = formEntries.find(form => form.id === formId)
-
-        if (selectedForm) {
-            localStorage.setItem('form_id', formId)
-            await new Promise(resolve => setTimeout(resolve, 50)) 
-            handleFormSelect(selectedForm)
-            setSelectedFormId(formId)
-        }
     }
 
     const projects_display =
@@ -567,58 +371,54 @@ const Home: FC = () => {
                           >
                               <ListGroup.Item key={key._id} action={true}>
                                   <span className="icon-container">
-                                      {/* <Menu options={options} /> */}
-
                                       <Button
                                           variant="light"
-                                          onClick={async event => {
+                                          onClick={event => {
                                               event.stopPropagation()
                                               event.preventDefault()
-                                              await editAddressDetails(
-                                                  project._id,
-                                              )
-                                              navigate(`/app/${project._id}`)
+                                              editAddressDetails(key._id)
                                           }}
                                       >
                                           <TfiPencil size={22} />
                                       </Button>
-
                                       <Button
                                           variant="light"
                                           onClick={event =>
-                                              handleDelete(event, project)
+                                              handleDelete(event, key)
                                           }
                                       >
                                           <TfiTrash size={22} />
                                       </Button>
                                       <ExportDoc
-                                          docId={project._id}
-                                          docName={project.metadata_?.doc_name}
+                                          docId={key._id}
+                                          docName={key.metadata_?.doc_name}
                                           includeChild={true}
                                       />
                                   </span>
-                                  <b>{project.metadata_?.doc_name}</b>
-                                  {project.data_?.location?.street_address && (
+                                  <b>{key.metadata_?.doc_name}</b>
+                                  {/* Show prefilled indicator */}
+                                  {key.metadata_?.prefilled && (
+                                      <span className="badge bg-info ms-2">
+                                          Prefilled
+                                      </span>
+                                  )}
+                                  {key.data_?.location?.street_address && (
                                       <>
                                           <br />
-                                          {
-                                              project.data_?.location
-                                                  ?.street_address
-                                          }
-                                          ,
+                                          {key.data_?.location?.street_address},
                                       </>
                                   )}
-                                  {project.data_?.location?.city && (
+                                  {key.data_?.location?.city && (
                                       <>
                                           <br />
-                                          {project.data_?.location?.city},{' '}
+                                          {key.data_?.location?.city},{' '}
                                       </>
                                   )}
-                                  {project.data_.location?.state && (
-                                      <>{project.data_?.location?.state} </>
+                                  {key.data_.location?.state && (
+                                      <>{key.data_?.location?.state} </>
                                   )}
-                                  {project.data_.location?.zip_code && (
-                                      <>{project.data_?.location?.zip_code}</>
+                                  {key.data_.location?.zip_code && (
+                                      <>{key.data_?.location?.zip_code}</>
                                   )}
                               </ListGroup.Item>
                           </LinkContainer>
@@ -626,79 +426,64 @@ const Home: FC = () => {
                   </div>
               ))
 
-    return projectList.length > 0 || selectedProjectToDelete ? (
-        <StoreProvider
-            dbName="db"
-            docId={selectedFormId || ''}
-            workflowName=""
-            docName={
-                selectedProjectToDelete
-                    ? projectList.find(p => p._id === selectedProjectToDelete)
-                          ?.metadata_?.doc_name || ''
-                    : projectList[0]?.metadata_?.doc_name || ''
-            }
-            type="project"
-            parentId={undefined}
-            userId={userId}
-            applicationId={applicationId}
-            processId={processId}
-            processStepId={processStepId}
-            selectedFormId={selectedFormId}
-            setSelectedFormId={setSelectedFormId}
-            handleFormSelect={handleFormSelect}
-            formEntries={formEntries}
-            s3Config={s3Config}
-        >
-            <>
-                <div>
-                    {Object.keys(projectList).length == 0 && (
-                        <center>
+    // Show available prefill data for debugging
+    const hasPrefillData = Object.keys(formPrefillData).some(
+        key => formPrefillData[key as keyof typeof formPrefillData],
+    )
+
+    return (
+        <>
+            <div>
+                {/* Show prefill data indicator */}
+                {hasPrefillData && (
+                    <div className="alert alert-info mb-3">
+                        <strong>
+                            Form data received from parent application
+                        </strong>
+                        <details className="mt-2">
+                            <summary>View received data</summary>
+                            <pre
+                                className="mt-2 mb-0"
+                                style={{ fontSize: '0.8em' }}
+                            >
+                                {JSON.stringify(formPrefillData, null, 2)}
+                            </pre>
+                        </details>
+                    </div>
+                )}
+
+                {Object.keys(projectList).length == 0 && (
+                    <center>
+                        <br />
+                        <p className="welcome-header">
+                            Welcome to the Quality Install Tool
+                        </p>
+                        <br />
+                        <p className="welcome-content">
+                            With this tool you will be able <br /> to easily
+                            take photos and document <br />
+                            your entire installation project. <br />
                             <br />
-                            <p className="welcome-header">
-                                Welcome to the Quality Install Tool
-                            </p>
                             <br />
-                            <p className="welcome-content">
-                                With this tool you will be able <br /> to easily
-                                take photos and document <br />
-                                your entire installation project. <br />
-                                <br />
-                                <br />
-                                For your records
-                                <br />
-                                For your clients
-                                <br />
-                                For quality assurance reporting
-                            </p>
-                            <div className="button-container-center" key={0}>
-                                <Button
-                                    onClick={handleAddJob}
-                                    alt-text="Add a New Project"
-                                >
-                                    Add a New Project
-                                </Button>
-                                <ImportDoc
-                                    id="project_json"
-                                    label="Import a Project"
-                                />
-                            </div>
-                        </center>
-                    )}
-                    {Object.keys(projectList).length > 0 && (
-                        <div>
-                            <div className="align-right padding">
-                                <Button
-                                    onClick={handleAddJob}
-                                    alt-text="Add a New Project"
-                                >
-                                    Add a New Project
-                                </Button>
-                                <ImportDoc
-                                    id="project_json"
-                                    label="Import Project"
-                                />
-                            </div>
-                            {projects_display}
+                            For your records
+                            <br />
+                            For your clients
+                            <br />
+                            For quality assurance reporting
+                        </p>
+                        <div className="button-container-center" key={0}>
+                            <Button
+                                onClick={handleAddJob}
+                                alt-text="Add a New Project"
+                            >
+                                {hasPrefillData
+                                    ? 'Create Project with Prefilled Data'
+                                    : 'Add a New Project'}
+                            </Button>
+                            <ImportDoc
+                                id="project_json"
+                                label="Import a Project"
+                            />
                         </div>
                     </center>
                 )}
@@ -710,7 +495,9 @@ const Home: FC = () => {
                                     onClick={handleAddJob}
                                     alt-text="Add a New Project"
                                 >
-                                    Add a New Project
+                                    {hasPrefillData
+                                        ? 'Create Project with Prefilled Data'
+                                        : 'Add a New Project'}
                                 </Button>
                                 <ImportDoc
                                     id="project_json"

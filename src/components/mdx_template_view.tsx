@@ -62,14 +62,6 @@ const MdxTemplateView: FC = () => {
             docName={doc_name}
             type={'installation'}
             parentId={projectId as string}
-            userId={''}
-            applicationId={''}
-            processId={''}
-            processStepId={''}
-            selectedFormId={''}
-            setSelectedFormId={() => ''}
-            handleFormSelect={() => ''}
-            formEntries={[]}
         >
             <h1>{projectSummary?.installation_name}</h1>
             <h2>Installation for {projectSummary?.project_name}</h2>

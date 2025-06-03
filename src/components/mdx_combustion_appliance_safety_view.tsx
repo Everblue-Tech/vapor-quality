@@ -34,14 +34,6 @@ const MdxCombustionSafetyView: FC = () => {
             workflowName=""
             docName={projectDoc?.metadata_?.doc_name}
             type="project"
-            userId={''}
-            applicationId={''}
-            processId={''}
-            processStepId={''}
-            selectedFormId={''}
-            setSelectedFormId={() => ''}
-            handleFormSelect={() => ''}
-            formEntries={[]}
         >
             <h1>Combustion Appliance Safety Testing</h1>
             <h2>Installation for {projectDoc?.metadata_?.doc_name}</h2>

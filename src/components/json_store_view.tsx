@@ -27,14 +27,6 @@ const JsonStoreView: FC<JsonStoreViewProps> = ({ dbName, project }) => {
             workflowName=""
             docName={''}
             type={''}
-            userId={''}
-            applicationId={''}
-            processId={''}
-            processStepId={''}
-            selectedFormId={''}
-            setSelectedFormId={() => ''}
-            handleFormSelect={() => ''}
-            formEntries={[]}
         >
             <StoreContext.Consumer>
                 {({ attachments, data }) => {

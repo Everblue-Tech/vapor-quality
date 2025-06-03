@@ -45,14 +45,6 @@ const MdxProjectView: FC = () => {
             workflowName=""
             docName={projectDoc?.metadata_?.doc_name}
             type="project"
-            userId={''}
-            applicationId={''}
-            processId={''}
-            processStepId={''}
-            selectedFormId={''}
-            setSelectedFormId={() => ''}
-            handleFormSelect={() => ''}
-            formEntries={[]}
         >
             <Suspense fallback={<div>Loading..</div>}>
                 <MdxWrapper

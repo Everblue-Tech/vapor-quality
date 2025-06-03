@@ -156,19 +156,15 @@ const JobList: React.FC = () => {
                 db,
                 projectId as string,
             )
-<<<<<<< HEAD
-            const response = await putNewInstallation(
-=======
 
             const newJob = await putNewInstallation(
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                 db,
                 '',
                 workflowName as string,
                 docName,
                 jobId,
             )
-            console.log('RESPONSE', response)
+            console.log('RESPONSE', Response)
             const updatedProjectDoc = await db.get(projectId as string)
             console.log(
                 'Children in project after add:',

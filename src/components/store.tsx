@@ -21,17 +21,10 @@ import {
     exportDocumentAsJSONObject,
 } from '../utilities/database_utils'
 import EventEmitter from 'events'
-<<<<<<< HEAD
-import { getAuthToken } from '../auth/keycloak'
-import jsPDF from 'jspdf'
-import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
-import { S3Config } from './home'
-=======
 import jsPDF from 'jspdf'
 import { measureTypeMapping } from '../templates/templates_config'
 import { getConfig } from '../config'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
 
 PouchDB.plugin(PouchDBUpsert)
 
@@ -63,16 +56,6 @@ type Attachments = Record<
     | { blob: Blob; digest: string; metadata: Record<string, JSONValue> }
 >
 
-declare global {
-    interface Window {
-        docData: any
-<<<<<<< HEAD
-        docDataMap: Record<string, any>
-=======
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
-    }
-}
-
 export const StoreContext = React.createContext({
     docId: '' satisfies string,
     attachments: {} satisfies Attachments,
@@ -86,17 +69,6 @@ export const StoreContext = React.createContext({
     deleteAttachment: (attachmentId: string) => {},
     upsertData: ((pathStr: string, data: any) => {}) as UpsertData,
     upsertMetadata: ((pathStr: string, data: any) => {}) as UpsertMetadata,
-    userId: null as string | null,
-    applicationId: null as string | null,
-    processId: null as string | null,
-    processStepId: null as string | null,
-    selectedFormId: null as string | null,
-    setSelectedFormId: (() => {}) as React.Dispatch<
-        React.SetStateAction<string | null>
-    >,
-    handleFormSelect: (() => {}) as (form: FormEntry) => void,
-    formEntries: [] as FormEntry[],
-    s3Config: null as S3Config | null,
 })
 
 interface StoreProviderProps {
@@ -107,24 +79,6 @@ interface StoreProviderProps {
     docName: string
     type: string
     parentId?: string | undefined
-    userId: string | null
-    applicationId: string | null
-    processId: string | null
-    processStepId: string | null
-    selectedFormId: string | null
-    setSelectedFormId: React.Dispatch<React.SetStateAction<string | null>>
-    handleFormSelect: (form: FormEntry | null) => void
-    formEntries: FormEntry[]
-    s3Config?: S3Config | null
-}
-
-export type FormEntry = {
-    id: string
-    process_step_id: string
-    user_id: string
-    form_data: any
-    created_at: string
-    updated_at: string | null
 }
 
 const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
@@ -144,20 +98,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     docName,
     type,
     parentId,
-    userId,
-    applicationId,
-    processId,
-    processStepId,
-    selectedFormId,
-    setSelectedFormId,
-    handleFormSelect,
-    formEntries,
-    s3Config,
 }) => {
-    // ensure docDataMap is always initialized
-    if (typeof window !== 'undefined' && !window.docDataMap) {
-        window.docDataMap = {}
-    }
     const changesRef = useRef<PouchDB.Core.Changes<{}>>()
     const revisionRef = useRef<string>()
     // The attachments state will have the form: {[att_id]: {blob, digest, metadata}, ...}
@@ -175,12 +116,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     // Increase the maximum number of listeners for all EventEmitters
     EventEmitter.defaultMaxListeners = 20
 
-    const selectedFormIdRef = useRef<string | null>(null)
-
-    useEffect(() => {
-        selectedFormIdRef.current = selectedFormId
-    }, [selectedFormId])
-
     /**
      * Updates component state based on a database document change
      *
@@ -196,11 +131,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         delete newDoc._rev
 
         setDoc(newDoc)
-
-        // Ensure form data is persisted globally
-        if (dbDoc.data_) {
-            window.docData = dbDoc.data_
-        }
 
         // Update the attachments state as needed
         // Note: dbDoc will not have a _attachments field if the document has no attachments
@@ -273,14 +203,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
          */
         ;(async function connectStoreToDB() {
             try {
-<<<<<<< HEAD
-                // Check if the doc already exists before trying to create it
-                const existingDoc = await db.get(docId)
-                revisionRef.current = existingDoc._rev
-            } catch (err: any) {
-                if (err.status === 404) {
-                    // Only create the doc if it doesn't exist
-=======
                 const normalizedDocId = docId === '0' ? undefined : docId
 
                 // Check if the document already exists
@@ -292,7 +214,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                 }
 
                 if (!existingDoc) {
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                     const result = !isInstallationDoc
                         ? await putNewProject(db, docName, docId)
                         : await putNewInstallation(
@@ -302,23 +223,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                               docName,
                               parentId as string,
                           )
-<<<<<<< HEAD
-
-                    if (
-                        result &&
-                        typeof result === 'object' &&
-                        'rev' in result &&
-                        typeof result.rev === 'string'
-                    ) {
-                        revisionRef.current = result.rev
-                    } else {
-                        console.warn(
-                            'Unexpected result from document creation:',
-                            result,
-                        )
-                    }
-                }
-=======
                     revisionRef.current = (
                         result as unknown as PouchDB.Core.Response
                     ).rev
@@ -328,22 +232,13 @@ export const StoreProvider: FC<StoreProviderProps> = ({
             } catch (err) {
                 console.error('DB initialization error:', err)
                 // TODO: Rethink how best to handle errors
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
             }
-
             // Initialize doc and attachments state from the DB document
             try {
                 const dbDoc = await db.get(docId)
                 processDBDocChange(db, dbDoc)
-            } catch (err: any) {
-                if (err.status === 404 || err.name === 'not_found') {
-                    // pouchDB throws a 404 missing error when db.get(docId) is called but docId doesn't exist yet
-                    console.info(
-                        `No existing document found for docId: ${docId}`,
-                    )
-                } else {
-                    console.error('Unable to initialize state from DB:', err)
-                }
+            } catch (err) {
+                console.error('Unable to initialize state from DB:', err)
             }
 
             // Subscribe to DB document changes
@@ -423,63 +318,20 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     }
 
     /**
-     * Updates (or inserts) a value into the `data_` property of the document state and persists it to the DB.
+     * Updates (or inserts) data into the data_ property of the doc state by invoking updatedDoc function
      *
      * @remarks
-     * This function is typically passed through `StoreContext.Provider` and used by form inputs to update the document.
-     * It prefixes the provided path with `data_.` to ensure updates are scoped to the `data_` field in the document.
-     * It also updates the global `window.docData` and `window.docDataMap` objects for in-memory tracking across sessions.
+     * This function is typically passed to an input wrapper component via the StoreContext.Provider value
+     * This function calls updateDoc, with the path to "data_" in dbDoc.
      *
-     * @param pathStr A dot/bracket notation path such as "foo.bar[2].biz" pointing to where the value should be inserted inside `data_`.
-     * @param value The value that is to be updated/inserted at the specified path
+     * @param pathStr A string path such as "foo.bar[2].biz" that represents a path into the doc state
+     * @param value The value that is to be updated/inserted
      */
 
     const upsertData: UpsertData = (pathStr, value) => {
         pathStr = 'data_.' + pathStr
-<<<<<<< HEAD
-        // create updated doc with new value immutably inserted
-        const updatedDoc = immutableUpsert(
-            doc,
-            toPath(pathStr) as NonEmptyArray<string>,
-            value,
-        )
-        setDoc(updatedDoc)
-
-        // update global window.docData and window.docDataMap for in-memory access
-        const newData = updatedDoc.data_
-        window.docData = newData
-        if (typeof window !== 'undefined' && selectedFormIdRef.current) {
-            if (!window.docDataMap) {
-                window.docDataMap = {}
-            }
-            window.docDataMap[selectedFormIdRef.current] = newData
-        }
-
-        // persist the updated document to the DB
-        if (db != null) {
-            db.upsert(docId, function upsertFn(dbDoc: any) {
-                const result = { ...dbDoc, ...updatedDoc }
-                if (!result.metadata_) {
-                    result.metadata_ = {
-                        created_at: new Date().toISOString(),
-                        last_modified_at: new Date().toISOString(),
-                    }
-                } else {
-                    result.metadata_.last_modified_at = new Date().toISOString()
-                }
-                return result
-            })
-                .then(function (res) {
-                    revisionRef.current = res.rev
-                })
-                .catch(function (err: Error) {
-                    console.error('upsert error:', err)
-                })
-        }
-=======
         upsertDoc(pathStr, value)
         window.docData = doc.data_
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
     }
 
     /**
@@ -632,15 +484,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                 deleteAttachment,
                 upsertData,
                 upsertMetadata,
-                userId,
-                applicationId,
-                processId,
-                processStepId,
-                selectedFormId,
-                setSelectedFormId,
-                handleFormSelect,
-                formEntries,
-                s3Config: s3Config ?? null,
             }}
         >
             {children}
@@ -681,197 +524,6 @@ export function immutableUpsert(
     return newRecipient
 }
 
-<<<<<<< HEAD
-export const saveProjectAndUploadToS3 = async (projectDoc: any) => {
-    try {
-        const pdf = new jsPDF()
-        pdf.text(
-            `Project: ${projectDoc.metadata_.doc_name || 'Untitled Project'}`,
-            10,
-            10,
-        )
-        pdf.text('Quality Install Tool Report', 10, 20)
-
-        const reportData = {
-            projectName: projectDoc.metadata_.doc_name,
-            ...projectDoc.data_,
-        }
-
-        pdf.text(JSON.stringify(reportData, null, 2), 10, 30)
-        const pdfBlob = pdf.output('blob')
-
-        const s3Response = await fetch(
-            'http://localhost:5000/api/s3/FILL_ME_IN', // CHANGE TO S3 PRSIGNED URL - need to generate on backend to make put
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${getAuthToken()}`,
-                },
-                body: JSON.stringify({
-                    file_name: `quality_install_${projectDoc.metadata_.doc_name || 'Untitled Project'}_${Date.now()}.pdf`,
-                    file_type: 'application/pdf',
-                }),
-            },
-        )
-        const s3Data = await s3Response.json()
-        if (!s3Data.success) {
-            console.error('Failed to get S3 presigned URL:', s3Data)
-            return
-        }
-        console.log('Uploading PDF to S3:', s3Data.url)
-        const uploadResponse = await fetch(s3Data.url, {
-            method: 'PUT',
-            body: pdfBlob,
-            headers: { 'Content-Type': 'application/pdf' },
-        })
-        if (!uploadResponse.ok) {
-            console.error('Failed to upload PDF to S3:', uploadResponse)
-            return
-        }
-        let formId = localStorage.getItem('form_id')
-        const updateResponse = await fetch(
-            `http://localhost:5000/api/quality-install/${formId}`,
-            {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${getAuthToken()}`,
-                },
-                body: JSON.stringify({ s3_file_url: s3Data.url }),
-            },
-        )
-        const updateData = await updateResponse.json()
-        if (updateData.success) {
-            console.log(
-                'Successfully saved project and updated DB with S3 URL:',
-                updateData,
-            )
-        } else {
-            console.error('Failed to update DB with S3 file URL:', updateData)
-        }
-        const { processId, userId, processStepId } = extractLocalStorageData()
-        const conditionResponse = await fetch(
-            `http://localhost:5000/api/process/${processId}/step/${processStepId}/condition`,
-            {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${getAuthToken()}`,
-                },
-                body: JSON.stringify({ condition: 'CLOSED' }),
-            },
-        )
-        if (!conditionResponse.ok) {
-            console.error(
-                'Failed to update step condition to CLOSED:',
-                conditionResponse,
-            )
-            return
-        }
-        const projectDocName = projectDoc.metadata_.doc_name
-        const conditionData = await conditionResponse.json()
-        console.log('Step condition updated:', conditionData)
-        const NewQualityInstallSubmissionData =
-            await storeNewQualityInstallSubmission(
-                projectDocName,
-                [],
-                formId,
-                userId,
-                processId,
-                processStepId,
-            )
-        console.log('Local Storage Updated:', NewQualityInstallSubmissionData)
-    } catch (error) {
-        console.error('Error in saveProjectAndUploadToS3:', error)
-    }
-}
-
-function storeNewQualityInstallSubmission(
-    submissionName: string,
-    formData: any,
-    applicationId: any,
-    userId: string,
-    processId: string,
-    stepId: string,
-    localStorageKey = 'quality_install_submission',
-) {
-    const newObject = {
-        [submissionName]: {
-            form_data: formData,
-            application_id: applicationId,
-            user_id: userId,
-            process_id: processId,
-            step_id: stepId,
-        },
-    }
-
-    localStorage.setItem(localStorageKey, JSON.stringify(newObject))
-}
-
-function extractLocalStorageData() {
-    const prequalificationData = localStorage.getItem(
-        'formData_prequalification',
-    )
-    let processId = null
-    let userId = null
-
-    if (prequalificationData) {
-        try {
-            const parsedData = JSON.parse(prequalificationData)
-            processId = parsedData.process_id || null
-            userId = parsedData.user?.user_id || null
-        } catch (error) {
-            console.error('Error parsing formData_prequalification:', error)
-        }
-    }
-    let processStepId = localStorage.getItem('process_step_id') || ''
-    return {
-        processId: processId,
-        userId: userId,
-        processStepId: processStepId,
-    }
-}
-
-export const isFormComplete = (formData: any, metadata?: any): boolean => {
-    if (!formData) return false
-    if (!formData.installer) {
-        console.warn('Missing required installer data')
-        return false
-    }
-
-    const installerFields = [
-        'name',
-        'company_name',
-        'mailing_address',
-        'phone',
-        'email',
-    ]
-    for (const field of installerFields) {
-        if (
-            !formData.installer[field] ||
-            formData.installer[field].trim() === ''
-        ) {
-            return false
-        }
-    }
-    if (!formData.location) {
-        return false
-    }
-    const locationFields = ['street_address', 'city', 'state', 'zip_code']
-    for (const field of locationFields) {
-        if (
-            !formData.location[field] ||
-            formData.location[field].trim() === ''
-        ) {
-            return false
-        }
-    }
-    return true
-}
-
-=======
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
 export function persistSessionState({
     userId,
     applicationId,
@@ -889,26 +541,6 @@ export function persistSessionState({
     if (processStepId) localStorage.setItem('process_step_id', processStepId)
 }
 
-<<<<<<< HEAD
-/**
- * Saves or updates the current form data to the vapor-core backend database (Amazon RDS).
- *
- * @remarks
- * If a `form_id` already exists in localStorage, this function attempts to update the existing form by sending a PUT request.
- * If the form does not exist (404), it automatically tries to create a new one via a POST request.
- * If no `form_id` exists initially, it creates a new form entry via a POST request and stores the returned `form_id` in localStorage.
- *
- * Optionally, after creating a new form, it updates the selected form ID state and calls the `handleFormSelect` callback.
- * It's "optional" because React UI state updates (setSelectedFormId, handleFormSelect) are only triggered if those callback functions are provided by the caller while the backend save works either way.
- *
- * @param userId - the user ID passed into the vapor-quality iframe from vapor-flow
- * @param processStepId - the process step ID passed into the vapor-quality iframe from vapor-flow
- * @param form_data - the form data payload to save
- * @param setSelectedFormId - optional setter function to update the selected form ID in state
- * @param handleFormSelect - optional functino to select the newly created form entry after creation
- * @returns
- */
-=======
 export const updateProcessStepWithMeasure = async ({
     userId,
     processId,
@@ -1026,7 +658,6 @@ export const closeProcessStepIfAllMeasuresComplete = async (
         console.error(' Error:', error)
     }
 }
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
 
 export const saveToVaporCoreDB = async (
     userId: string | null,
@@ -1051,11 +682,6 @@ export const saveToVaporCoreDB = async (
 
     let uploadedDocumentId
 
-<<<<<<< HEAD
-    console.log(fileToUpload)
-
-=======
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
     try {
         // if file and valid s3Config provided, upload file to s3
         if (fileToUpload) {
@@ -1070,15 +696,9 @@ export const saveToVaporCoreDB = async (
                             userId,
                             organizationId,
                             documentType: 'quality install photo',
-<<<<<<< HEAD
-                        },
-                    )
-                    console.log(`Uploaded document ID: ${uploadedDocumentId}`)
-=======
                             measureName: 'project-photo',
                         },
                     )
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                     if (uploadedDocumentId) {
                         if (!form_data.documents) {
                             form_data.documents = []
@@ -1107,10 +727,6 @@ export const saveToVaporCoreDB = async (
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
-<<<<<<< HEAD
-                            Authorization: `Bearer ${getAuthToken()}`,
-=======
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                         },
                         body: JSON.stringify(formData),
                     },
@@ -1127,10 +743,6 @@ export const saveToVaporCoreDB = async (
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-<<<<<<< HEAD
-                                Authorization: `Bearer ${getAuthToken()}`,
-=======
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                             },
                             body: JSON.stringify({
                                 id: formId,
@@ -1158,10 +770,6 @@ export const saveToVaporCoreDB = async (
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-<<<<<<< HEAD
-                        Authorization: `Bearer ${getAuthToken()}`,
-=======
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
                     },
                     body: JSON.stringify(formData),
                 },
@@ -1189,8 +797,6 @@ export const saveToVaporCoreDB = async (
         console.error('Error saving to RDS:', error)
     }
 }
-<<<<<<< HEAD
-=======
 
 export const fetchExistingRDSForm = async (
     userId: string,
@@ -1233,7 +839,6 @@ export const hydrateFromRDS = async (rdsEntry: any, db: PouchDB.Database) => {
             return
         }
 
-        // Check if project already exists
         const existing = await db.allDocs({ include_docs: true })
         const projectExists = existing.rows.some(doc =>
             doc.id.startsWith('project_'),
@@ -1249,6 +854,12 @@ export const hydrateFromRDS = async (rdsEntry: any, db: PouchDB.Database) => {
         const RESERVED_KEYS = new Set(['_id', '_rev', '_attachments'])
         const importedDocs: Record<string, any> = {}
         const childrenIds: string[] = []
+        const inlinedAttachments: Record<
+            string,
+            { content_type: string; data: string }
+        > = {}
+
+        console.log('rdsEntry', rdsEntry)
 
         for (const [docId, docBody] of Object.entries(rdsEntry.form_data) as [
             string,
@@ -1261,11 +872,18 @@ export const hydrateFromRDS = async (rdsEntry: any, db: PouchDB.Database) => {
             const idToUse = docBody._id || docId
             if (!idToUse) continue
 
+            console.log('docBody', docBody)
+
             const { _attachments, ...docWithoutAttachments } = docBody
             await db.put({ ...docWithoutAttachments, _id: idToUse })
             importedDocs[idToUse] = docBody
 
-            // Put attachments if they exist
+            console.log(
+                `docId: ${docId}, has _attachments:`,
+                docBody._attachments,
+            )
+
+            // inline attachments into project-level _attachments
             if (_attachments) {
                 for (const [attachmentId, attachment] of Object.entries(
                     _attachments,
@@ -1280,6 +898,15 @@ export const hydrateFromRDS = async (rdsEntry: any, db: PouchDB.Database) => {
                         blob,
                         attachment.content_type,
                     )
+
+                    console.log(
+                        `Saved attachment: ${attachmentId} to ${idToUse}`,
+                    )
+
+                    inlinedAttachments[attachmentId] = {
+                        content_type: attachment.content_type,
+                        data: attachment.data,
+                    }
                 }
             }
 
@@ -1296,6 +923,9 @@ export const hydrateFromRDS = async (rdsEntry: any, db: PouchDB.Database) => {
             metadata_: importedDocs['metadata_'],
             data_: importedDocs['data_'],
             children: childrenIds,
+            _attachments: Object.keys(inlinedAttachments).length
+                ? inlinedAttachments
+                : undefined,
         }
 
         await db.put(projectDoc)
@@ -1309,4 +939,3 @@ export const hydrateFromRDS = async (rdsEntry: any, db: PouchDB.Database) => {
         console.error('Error hydrating from RDS:', err)
     }
 }
->>>>>>> beaa9b39d92de997e5997eef604d338f1cd0b809
