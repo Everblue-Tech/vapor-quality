@@ -270,20 +270,77 @@ export async function fetchDocumentById(documentId: string) {
     return json.data
 }
 
+// export async function hydratePhotoFromDocumentId({
+//     documentId,
+//     entryId,
+//     attachmentId,
+//     upsertAttachment,
+// }: {
+//     documentId: string
+//     entryId: string
+//     attachmentId: string
+//     upsertAttachment: (
+//         blob: Blob,
+//         id: string,
+//         docId?: string,
+//         metadata?: any,
+//     ) => void
+// }) {
+//     const s3Client = new S3Client({
+//         region: REACT_APP_AWS_REGION,
+//         credentials: {
+//             accessKeyId: REACT_APP_AWS_S3_BUCKET_USER_KEY,
+//             secretAccessKey: REACT_APP_AWS_S3_BUCKET_USER_SECRET,
+//         },
+//     })
+//     try {
+//         const doc = await fetchDocumentById(documentId)
+//         const { bucket, key, fileName } = parseS3Path(doc.file_path)!
+//         const command = new GetObjectCommand({ Bucket: bucket, Key: key })
+//         const response = await s3Client.send(command)
+
+//         const contentType =
+//             fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')
+//                 ? 'image/jpeg'
+//                 : fileName.endsWith('.png')
+//                   ? 'image/png'
+//                   : 'application/octet-stream'
+
+//         const blob = await streamToBlob(response.Body, contentType)
+//         console.log(blob)
+
+//         const metadata = await getMetadataFromPhoto(blob)
+
+//         // Inject into PouchDB/StoreContext
+//         upsertAttachment(blob, entryId, entryId, metadata)
+//         console.log(`[Hydration] Injected ${attachmentId} into attachments`)
+//     } catch (err) {
+//         console.error('Failed to hydrate building number photo:', err)
+//     }
+// }
+
 export async function hydratePhotoFromDocumentId({
     documentId,
+    entryId,
     attachmentId,
     upsertAttachment,
 }: {
     documentId: string
+    entryId: string
     attachmentId: string
     upsertAttachment: (
         blob: Blob,
         id: string,
-        docId?: string,
+        fileName?: string,
         metadata?: any,
-    ) => void
+    ) => Promise<void> // Make sure this matches your UpsertAttachment type
 }) {
+    console.log('[Hydration] Starting hydration for:', {
+        documentId,
+        entryId,
+        attachmentId,
+    })
+
     const s3Client = new S3Client({
         region: REACT_APP_AWS_REGION,
         credentials: {
@@ -291,9 +348,14 @@ export async function hydratePhotoFromDocumentId({
             secretAccessKey: REACT_APP_AWS_S3_BUCKET_USER_SECRET,
         },
     })
+
     try {
         const doc = await fetchDocumentById(documentId)
+        console.log('[Hydration] Document fetched:', doc)
+
         const { bucket, key, fileName } = parseS3Path(doc.file_path)!
+        console.log('[Hydration] S3 path parsed:', { bucket, key, fileName })
+
         const command = new GetObjectCommand({ Bucket: bucket, Key: key })
         const response = await s3Client.send(command)
 
@@ -305,13 +367,39 @@ export async function hydratePhotoFromDocumentId({
                   : 'application/octet-stream'
 
         const blob = await streamToBlob(response.Body, contentType)
+        console.log('[Hydration] Blob created:', {
+            size: blob.size,
+            type: blob.type,
+        })
 
         const metadata = await getMetadataFromPhoto(blob)
+        console.log('[Hydration] Metadata extracted:', metadata)
 
-        // Inject into PouchDB/StoreContext
-        upsertAttachment(blob, attachmentId, undefined, metadata)
-        console.log(`[Hydration] Injected ${attachmentId} into attachments`)
+        // Wait for the attachment to be fully persisted
+        await upsertAttachment(blob, entryId, fileName, metadata)
+        console.log(
+            `[Hydration] Successfully injected ${attachmentId} into attachments`,
+        )
     } catch (err) {
-        console.error('Failed to hydrate building number photo:', err)
+        console.error(
+            '[Hydration] Failed to hydrate building number photo:',
+            err,
+        )
+        throw err
     }
+}
+
+export async function deleteDocumentById(documentId: string) {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
+        {
+            method: 'DELETE',
+        },
+    )
+
+    if (!response.ok) {
+        throw new Error(`Failed to delete document ${documentId}`)
+    }
+
+    return true
 }

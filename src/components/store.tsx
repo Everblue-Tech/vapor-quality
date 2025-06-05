@@ -409,6 +409,67 @@ export const StoreProvider: FC<StoreProviderProps> = ({
      * @param blob
      * @param id
      */
+    // const upsertAttachment: UpsertAttachment = async (
+    //     blob: Blob,
+    //     id: string,
+    //     fileName?: string,
+    //     photoMetadata?: Attachment['metadata'],
+    // ) => {
+    //     const metadata: Attachment['metadata'] = photoMetadata
+    //         ? photoMetadata
+    //         : isPhoto(blob)
+    //           ? await getMetadataFromPhoto(blob)
+    //           : {
+    //                 filename: fileName,
+    //                 timestamp: new Date(Date.now()).toISOString(),
+    //             }
+
+    //     // Storing SingleAttachmentMetaData in the DB
+    //     upsertMetadata('attachments.' + id, metadata)
+
+    //     // Store the blob in memory
+    //     const newAttachments = {
+    //         ...attachments,
+    //         [id]: {
+    //             blob,
+    //             metadata,
+    //         },
+    //     }
+
+    //     setAttachments(newAttachments)
+
+    //     // Persist the blob
+    //     const upsertBlobDB = async (
+    //         rev: string,
+    //     ): Promise<PouchDB.Core.Response | null> => {
+    //         let result = null
+    //         if (db != null) {
+    //             try {
+    //                 result = await db.putAttachment(
+    //                     docId,
+    //                     id,
+    //                     rev,
+    //                     blob,
+    //                     blob.type,
+    //                 )
+    //             } catch (err) {
+    //                 // Try again with the latest rev value
+    //                 const doc = await db.get(docId)
+    //                 result = await upsertBlobDB(doc._rev)
+    //             } finally {
+    //                 if (result != null) {
+    //                     revisionRef.current = result.rev
+    //                 }
+    //             }
+    //         }
+    //         return result
+    //     }
+
+    //     if (revisionRef.current) {
+    //         upsertBlobDB(revisionRef.current)
+    //     }
+    // }
+
     const upsertAttachment: UpsertAttachment = async (
         blob: Blob,
         id: string,
@@ -427,48 +488,119 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         // Storing SingleAttachmentMetaData in the DB
         upsertMetadata('attachments.' + id, metadata)
 
-        // Store the blob in memory
-        const newAttachments = {
-            ...attachments,
-            [id]: {
-                blob,
-                metadata,
-            },
-        }
-
-        setAttachments(newAttachments)
-
-        // Persist the blob
+        // Persist the blob with proper revision handling
         const upsertBlobDB = async (
-            rev: string,
+            maxRetries = 3,
         ): Promise<PouchDB.Core.Response | null> => {
-            let result = null
-            if (db != null) {
+            if (!db) {
+                console.warn('Database not available')
+                return null
+            }
+
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
-                    result = await db.putAttachment(
-                        docId,
-                        id,
-                        rev,
-                        blob,
-                        blob.type,
-                    )
-                } catch (err) {
-                    // Try again with the latest rev value
-                    const doc = await db.get(docId)
-                    result = await upsertBlobDB(doc._rev)
-                } finally {
-                    if (result != null) {
-                        revisionRef.current = result.rev
+                    // Get the latest document revision
+                    let currentRev = revisionRef.current
+
+                    if (!currentRev) {
+                        // If no revision available, try to get the document first
+                        try {
+                            const doc = await db.get(docId)
+                            currentRev = doc._rev
+                            revisionRef.current = currentRev
+                        } catch (err: any) {
+                            if (err.name !== 'not_found') {
+                                throw err
+                            }
+                            // Document doesn't exist, currentRev stays undefined
+                        }
+                    }
+
+                    // Handle undefined revision for new documents
+                    let result: PouchDB.Core.Response
+                    if (currentRev) {
+                        result = await db.putAttachment(
+                            docId,
+                            id,
+                            currentRev,
+                            blob,
+                            blob.type,
+                        )
+                    } else {
+                        // For new documents, use the overload that doesn't require revision
+                        result = await db.putAttachment(
+                            docId,
+                            id,
+                            blob,
+                            blob.type,
+                        )
+                    }
+
+                    // Update the revision reference with the new revision
+                    revisionRef.current = result.rev
+                    return result
+                } catch (err: any) {
+                    console.error(`Attempt ${attempt + 1} failed:`, err)
+
+                    if (err.name === 'conflict' && attempt < maxRetries - 1) {
+                        // Get the latest revision and try again
+                        try {
+                            const doc = await db.get(docId)
+                            revisionRef.current = doc._rev
+                            console.log(
+                                `Retrying with updated revision: ${doc._rev}`,
+                            )
+                        } catch (getErr: any) {
+                            if (getErr.name === 'not_found') {
+                                // Document was deleted, reset revision
+                                revisionRef.current = undefined
+                            } else {
+                                throw getErr
+                            }
+                        }
+                        // Continue to next iteration
+                        continue
+                    } else {
+                        console.error('Failed to save attachment:', err)
+                        throw err
                     }
                 }
             }
-            return result
+
+            throw new Error(
+                `Failed to save attachment after ${maxRetries} attempts`,
+            )
         }
 
-        if (revisionRef.current) {
-            upsertBlobDB(revisionRef.current)
+        try {
+            // Wait for the blob to be persisted and get the result
+            const result = await upsertBlobDB()
+
+            if (result) {
+                // Store the blob in memory with digest from the persistence result
+                // We need to get the updated document to get the digest
+                const updatedDoc = await db.get(docId)
+                const attachmentInfo = updatedDoc._attachments?.[id]
+
+                const newAttachments = {
+                    ...attachments,
+                    [id]: {
+                        blob,
+                        digest: attachmentInfo?.digest || '', // Include digest for proper comparison
+                        metadata,
+                    } satisfies Attachment,
+                }
+
+                setAttachments(newAttachments)
+                console.log(`Successfully stored attachment: ${id}`)
+            }
+        } catch (error) {
+            console.error('Error persisting attachment:', error)
+            // Don't update the in-memory state if persistence failed
+            throw error
         }
     }
+
     return (
         <StoreContext.Provider
             value={{
