@@ -154,6 +154,7 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                     }
                 })
 
+                // Function being adapted
                 const upsertPhoto = async (imgFile: Blob) => {
                     setLoading(true)
                     const nextKey = getMaxKeyWithNumberSuffix(
