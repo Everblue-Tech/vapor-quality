@@ -3,6 +3,8 @@ import { Button } from 'react-bootstrap'
 import type { MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDB } from '../utilities/database_utils'
+import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
+import { saveProjectToRDS } from './store'
 
 interface SaveCancelButtonProps {
     id: string
@@ -37,10 +39,6 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
     const [buttonLabel, setButtonLabel] = useState<String>('Save Project')
     const db = useDB()
 
-    const handleSaveButtonClick = (event: MouseEvent<HTMLButtonElement>) => {
-        saveProject()
-    }
-
     const handleCancelButtonClick = async (
         event: MouseEvent<HTMLButtonElement>,
     ) => {
@@ -49,12 +47,87 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
             return
         }
 
-        deleteEmptyProject()
+        navigate('/', { replace: true })
+
+        // deleteEmptyProject()
     }
 
-    const saveProject = () => {
-        updateValue('created')
-        navigate('/', { replace: true })
+    const handleSaveClick = async () => {
+        try {
+            const projectDoc: any = await db.get(id)
+
+            if (!projectDoc.metadata_ || !projectDoc.metadata_.doc_name) {
+                alert('Please enter a project name before saving.')
+                return
+            }
+
+            // upload photo attachments to S3 and replace metadata
+            if (projectDoc._attachments && projectDoc.metadata_?.attachments) {
+                const updatedMetadata = { ...projectDoc.metadata_ }
+
+                for (const attachmentId of Object.keys(
+                    projectDoc._attachments,
+                )) {
+                    const existing =
+                        projectDoc.metadata_?.attachments?.[attachmentId]
+                    if (existing?.documentId) continue // skip if already uploaded
+
+                    const blob = await db.getAttachment(id, attachmentId)
+
+                    const documentId = await uploadImageToS3AndCreateDocument({
+                        file: blob,
+                        userId: localStorage.getItem('user_id'),
+                        organizationId: localStorage.getItem('organization_id'),
+                        documentType: 'Quality Install Photo',
+                        measureName:
+                            projectDoc.metadata_?.doc_name || 'unknown',
+                    })
+
+                    // re-extract geolocation data
+                    const { getMetadataFromPhoto } = await import(
+                        '../utilities/photo_utils'
+                    )
+                    const photoMetadata = await getMetadataFromPhoto(blob)
+
+                    updatedMetadata.attachments[attachmentId] = {
+                        ...photoMetadata,
+                        documentId,
+                        timestamp: new Date().toISOString(),
+                    }
+                }
+
+                // persist the updated metadata back to PouchDB
+                await db.put({
+                    ...projectDoc,
+                    _rev: projectDoc._rev,
+                    metadata_: updatedMetadata,
+                    type: 'project',
+                })
+            }
+
+            // send the full form data to RDS
+            const updatedDoc = await db.get(id)
+            console.log(updatedDoc)
+            const formData = {
+                metadata_: updatedDoc.metadata_,
+                data_: updatedDoc.data_,
+                type: 'project',
+                docId: id,
+            }
+
+            await saveProjectToRDS({
+                userId: localStorage.getItem('user_id')!,
+                processStepId: localStorage.getItem('process_step_id')!,
+                formData,
+                docId: id,
+            })
+
+            updateValue('created')
+            navigate('/', { replace: true })
+        } catch (error) {
+            console.error('Error saving project with attachments:', error)
+            alert('Save failed. See console for details.')
+        }
     }
 
     useEffect(() => {
@@ -102,7 +175,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 &nbsp;
                 <Button
                     variant="primary"
-                    onClick={handleSaveButtonClick}
+                    onClick={handleSaveClick}
                     disabled={disableSave}
                 >
                     {buttonLabel}

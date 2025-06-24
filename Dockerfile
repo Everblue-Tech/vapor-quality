@@ -31,20 +31,36 @@ COPY . .
 # Build the React app
 RUN yarn run build
 
-# Stage 2: Serve the build
-FROM nginx:1.25-alpine
+# Final Stage: Node + NGINX
+FROM node:20-alpine
 
-# Set working directory
+# Install NGINX
+RUN apk add --no-cache nginx gettext
+
+# Set up backend
+WORKDIR /server
+COPY server/package.json ./
+RUN npm install
+COPY server/server.js .
+
+# Copy frontend assets
 WORKDIR /usr/share/nginx/html
 
-# Remove default nginx static assets
+# Remove default NGINX content
 RUN rm -rf ./*
 
 # Copy build output from Stage 1
 COPY --from=builder /app/build .
 
-# Expose port 80
-EXPOSE 80
+# Copy nginx.conf.template
+COPY nginx.conf.template /etc/nginx/nginx.conf.template
 
-# Start NGINX server
-CMD ["nginx", "-g", "daemon off;"]
+# Copy start script
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+# Expose ports
+EXPOSE 80 3001
+
+# Start backend and NGINX
+CMD ["/start.sh"]

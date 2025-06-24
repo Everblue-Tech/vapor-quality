@@ -18,8 +18,12 @@ import {
     putNewProject,
     putNewInstallation,
     useDB,
+    exportDocumentAsJSONObject,
 } from '../utilities/database_utils'
 import EventEmitter from 'events'
+import jsPDF from 'jspdf'
+import { measureTypeMapping } from '../templates/templates_config'
+import { getConfig } from '../config'
 
 PouchDB.plugin(PouchDBUpsert)
 
@@ -41,6 +45,12 @@ type Attachments = Record<
     | Attachment
     | { blob: Blob; digest: string; metadata: Record<string, JSONValue> }
 >
+
+declare global {
+    interface Window {
+        docData: any
+    }
+}
 
 export const StoreContext = React.createContext({
     docId: '' satisfies string,
@@ -66,6 +76,8 @@ interface StoreProviderProps {
     type: string
     parentId?: string | undefined
 }
+
+const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
 
 /**
  * A wrapper component that connects its children to a data store via React Context
@@ -187,17 +199,32 @@ export const StoreProvider: FC<StoreProviderProps> = ({
          */
         ;(async function connectStoreToDB() {
             try {
-                // Initialize the DB document as needed
-                const result = !isInstallationDoc
-                    ? ((await putNewProject(db, docName, docId)) as unknown)
-                    : ((await putNewInstallation(
-                          db,
-                          docId,
-                          workflowName,
-                          docName,
-                          parentId as string,
-                      )) as unknown)
-                revisionRef.current = (result as PouchDB.Core.Response).rev
+                const normalizedDocId = docId === '0' ? undefined : docId
+
+                // Check if the document already exists
+                let existingDoc: any = null
+                if (normalizedDocId) {
+                    existingDoc = await db
+                        .get(normalizedDocId)
+                        .catch(() => null)
+                }
+
+                if (!existingDoc) {
+                    const result = !isInstallationDoc
+                        ? await putNewProject(db, docName, docId)
+                        : await putNewInstallation(
+                              db,
+                              docId,
+                              workflowName,
+                              docName,
+                              parentId as string,
+                          )
+                    revisionRef.current = (
+                        result as unknown as PouchDB.Core.Response
+                    ).rev
+                } else {
+                    revisionRef.current = existingDoc._rev
+                }
             } catch (err) {
                 console.error('DB initialization error:', err)
                 // TODO: Rethink how best to handle errors
@@ -296,9 +323,11 @@ export const StoreProvider: FC<StoreProviderProps> = ({
      * @param pathStr A string path such as "foo.bar[2].biz" that represents a path into the doc state
      * @param value The value that is to be updated/inserted
      */
+
     const upsertData: UpsertData = (pathStr, value) => {
         pathStr = 'data_.' + pathStr
         upsertDoc(pathStr, value)
+        window.docData = doc.data_
     }
 
     /**
@@ -380,6 +409,67 @@ export const StoreProvider: FC<StoreProviderProps> = ({
      * @param blob
      * @param id
      */
+    // const upsertAttachment: UpsertAttachment = async (
+    //     blob: Blob,
+    //     id: string,
+    //     fileName?: string,
+    //     photoMetadata?: Attachment['metadata'],
+    // ) => {
+    //     const metadata: Attachment['metadata'] = photoMetadata
+    //         ? photoMetadata
+    //         : isPhoto(blob)
+    //           ? await getMetadataFromPhoto(blob)
+    //           : {
+    //                 filename: fileName,
+    //                 timestamp: new Date(Date.now()).toISOString(),
+    //             }
+
+    //     // Storing SingleAttachmentMetaData in the DB
+    //     upsertMetadata('attachments.' + id, metadata)
+
+    //     // Store the blob in memory
+    //     const newAttachments = {
+    //         ...attachments,
+    //         [id]: {
+    //             blob,
+    //             metadata,
+    //         },
+    //     }
+
+    //     setAttachments(newAttachments)
+
+    //     // Persist the blob
+    //     const upsertBlobDB = async (
+    //         rev: string,
+    //     ): Promise<PouchDB.Core.Response | null> => {
+    //         let result = null
+    //         if (db != null) {
+    //             try {
+    //                 result = await db.putAttachment(
+    //                     docId,
+    //                     id,
+    //                     rev,
+    //                     blob,
+    //                     blob.type,
+    //                 )
+    //             } catch (err) {
+    //                 // Try again with the latest rev value
+    //                 const doc = await db.get(docId)
+    //                 result = await upsertBlobDB(doc._rev)
+    //             } finally {
+    //                 if (result != null) {
+    //                     revisionRef.current = result.rev
+    //                 }
+    //             }
+    //         }
+    //         return result
+    //     }
+
+    //     if (revisionRef.current) {
+    //         upsertBlobDB(revisionRef.current)
+    //     }
+    // }
+
     const upsertAttachment: UpsertAttachment = async (
         blob: Blob,
         id: string,
@@ -398,48 +488,119 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         // Storing SingleAttachmentMetaData in the DB
         upsertMetadata('attachments.' + id, metadata)
 
-        // Store the blob in memory
-        const newAttachments = {
-            ...attachments,
-            [id]: {
-                blob,
-                metadata,
-            },
-        }
-
-        setAttachments(newAttachments)
-
-        // Persist the blob
+        // Persist the blob with proper revision handling
         const upsertBlobDB = async (
-            rev: string,
+            maxRetries = 3,
         ): Promise<PouchDB.Core.Response | null> => {
-            let result = null
-            if (db != null) {
+            if (!db) {
+                console.warn('Database not available')
+                return null
+            }
+
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
-                    result = await db.putAttachment(
-                        docId,
-                        id,
-                        rev,
-                        blob,
-                        blob.type,
-                    )
-                } catch (err) {
-                    // Try again with the latest rev value
-                    const doc = await db.get(docId)
-                    result = await upsertBlobDB(doc._rev)
-                } finally {
-                    if (result != null) {
-                        revisionRef.current = result.rev
+                    // Get the latest document revision
+                    let currentRev = revisionRef.current
+
+                    if (!currentRev) {
+                        // If no revision available, try to get the document first
+                        try {
+                            const doc = await db.get(docId)
+                            currentRev = doc._rev
+                            revisionRef.current = currentRev
+                        } catch (err: any) {
+                            if (err.name !== 'not_found') {
+                                throw err
+                            }
+                            // Document doesn't exist, currentRev stays undefined
+                        }
+                    }
+
+                    // Handle undefined revision for new documents
+                    let result: PouchDB.Core.Response
+                    if (currentRev) {
+                        result = await db.putAttachment(
+                            docId,
+                            id,
+                            currentRev,
+                            blob,
+                            blob.type,
+                        )
+                    } else {
+                        // For new documents, use the overload that doesn't require revision
+                        result = await db.putAttachment(
+                            docId,
+                            id,
+                            blob,
+                            blob.type,
+                        )
+                    }
+
+                    // Update the revision reference with the new revision
+                    revisionRef.current = result.rev
+                    return result
+                } catch (err: any) {
+                    console.error(`Attempt ${attempt + 1} failed:`, err)
+
+                    if (err.name === 'conflict' && attempt < maxRetries - 1) {
+                        // Get the latest revision and try again
+                        try {
+                            const doc = await db.get(docId)
+                            revisionRef.current = doc._rev
+                            console.log(
+                                `Retrying with updated revision: ${doc._rev}`,
+                            )
+                        } catch (getErr: any) {
+                            if (getErr.name === 'not_found') {
+                                // Document was deleted, reset revision
+                                revisionRef.current = undefined
+                            } else {
+                                throw getErr
+                            }
+                        }
+                        // Continue to next iteration
+                        continue
+                    } else {
+                        console.error('Failed to save attachment:', err)
+                        throw err
                     }
                 }
             }
-            return result
+
+            throw new Error(
+                `Failed to save attachment after ${maxRetries} attempts`,
+            )
         }
 
-        if (revisionRef.current) {
-            upsertBlobDB(revisionRef.current)
+        try {
+            // Wait for the blob to be persisted and get the result
+            const result = await upsertBlobDB()
+
+            if (result) {
+                // Store the blob in memory with digest from the persistence result
+                // We need to get the updated document to get the digest
+                const updatedDoc = await db.get(docId)
+                const attachmentInfo = updatedDoc._attachments?.[id]
+
+                const newAttachments = {
+                    ...attachments,
+                    [id]: {
+                        blob,
+                        digest: attachmentInfo?.digest || '', // Include digest for proper comparison
+                        metadata,
+                    } satisfies Attachment,
+                }
+
+                setAttachments(newAttachments)
+                console.log(`Successfully stored attachment: ${id}`)
+            }
+        } catch (error) {
+            console.error('Error persisting attachment:', error)
+            // Don't update the in-memory state if persistence failed
+            throw error
         }
     }
+
     return (
         <StoreContext.Provider
             value={{
@@ -489,4 +650,208 @@ export function immutableUpsert(
         )
     }
     return newRecipient
+}
+
+export function persistSessionState({
+    userId,
+    applicationId,
+    processId,
+    processStepId,
+}: {
+    userId?: string | null
+    applicationId?: string | null
+    processId?: string | null
+    processStepId?: string | null
+}) {
+    if (userId) localStorage.setItem('user_id', userId)
+    if (applicationId) localStorage.setItem('application_id', applicationId)
+    if (processId) localStorage.setItem('process_id', processId)
+    if (processStepId) localStorage.setItem('process_step_id', processStepId)
+}
+
+export const updateProcessStepWithMeasure = async ({
+    userId,
+    processId,
+    processStepId,
+    measureName,
+    finalReportDocumentId,
+    jobId,
+}: {
+    userId: string | null
+    processId: string
+    processStepId: string
+    measureName: string
+    finalReportDocumentId: string
+    jobId?: string
+}) => {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data`,
+        {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': userId ?? '',
+            },
+            body: JSON.stringify({
+                add_measure: {
+                    name: measureName,
+                    jobs: [
+                        {
+                            job_id: jobId,
+                            status: 'completed',
+                            final_report_document_id: finalReportDocumentId,
+                        },
+                    ],
+                },
+            }),
+        },
+    )
+
+    if (!response.ok) {
+        throw new Error('Failed to update process step with measure details')
+    }
+
+    return await response.json()
+}
+
+export const closeProcessStepIfAllMeasuresComplete = async (
+    processId: string | null,
+    processStepId: string | null,
+    userId: string | null,
+): Promise<void> => {
+    const expectedMeasureNames: string[] = JSON.parse(
+        localStorage.getItem('measures') || '[]',
+    )
+
+    if (!processId || !processStepId) {
+        console.warn('Missing required identifiers.')
+        return
+    }
+
+    try {
+        const formDataRes = await fetch(
+            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+            {
+                method: 'GET',
+            },
+        )
+
+        if (!formDataRes.ok) {
+            console.error('Failed to fetch form data')
+            return
+        }
+
+        const formJson = await formDataRes.json()
+        const formData = formJson?.data ?? {}
+        const actualMeasures = formData?.measures || []
+
+        const allCompleted = expectedMeasureNames.every(expected => {
+            const actualNames = measureTypeMapping[expected.toLowerCase()] || []
+
+            return actualMeasures.some(
+                (actual: any) =>
+                    actualNames.includes(actual.name) &&
+                    Array.isArray(actual.jobs) &&
+                    actual.jobs.length > 0 &&
+                    actual.jobs.every(
+                        (job: any) => job.status?.toLowerCase() === 'completed',
+                    ),
+            )
+        })
+
+        if (!allCompleted) {
+            console.log('Not all expected measures are marked completed.')
+            return
+        }
+
+        const closeRes = await fetch(
+            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/condition`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-user-id': userId ?? '',
+                },
+                body: JSON.stringify({ condition: 'CLOSED' }),
+            },
+        )
+
+        if (!closeRes.ok) {
+            const errorBody = await closeRes.text()
+            console.error('Failed to close step:', errorBody)
+        } else {
+            console.log('Process step closed successfully.')
+        }
+    } catch (error) {
+        console.error(' Error:', error)
+    }
+}
+
+export async function saveProjectToRDS({
+    userId,
+    processStepId,
+    formData,
+    docId,
+}: {
+    userId: string
+    processStepId: string
+    formData: any
+    docId: string
+}) {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/quality-install`,
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                process_step_id: processStepId,
+                id: docId,
+                form_data: formData,
+            }),
+        },
+    )
+
+    if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to save project info to RDS')
+    }
+
+    return await response.json()
+}
+
+export async function getProjectsFromRDS(
+    userId: string,
+    processStepId: string,
+) {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+    )
+
+    if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to fetch project data from RDS')
+    }
+
+    const result = await response.json()
+    return result.forms
+}
+
+export async function fetchDocumentMetadata(
+    documentId: string,
+): Promise<string | null> {
+    const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
+
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
+    )
+    if (!response.ok) {
+        console.warn(`[fetchDocumentMetadata] Failed for ${documentId}`)
+        return null
+    }
+
+    const result = await response.json()
+    return result?.data?.file_path || null
 }
