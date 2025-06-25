@@ -113,6 +113,18 @@ const PrintSection: FC<PrintSectionProps> = ({
 
         try {
             // generate PDF from final report data
+            const container = document.getElementById(printContainerId)
+            if (!container) {
+                alert('Error: Print container not found.')
+                return
+            }
+
+            const wrapper = container.querySelector('.pdf-wrapper')
+            if (!wrapper) {
+                alert('Error: .pdf-wrapper not found inside container.')
+                return
+            }
+
             const doc = new jsPDF({
                 orientation: 'portrait',
                 unit: 'pt',
@@ -120,10 +132,9 @@ const PrintSection: FC<PrintSectionProps> = ({
             })
 
             await new Promise<void>((resolve, reject) => {
-                doc.html(container, {
-                    x: 10,
-                    y: 10,
-                    autoPaging: 'text',
+                doc.html(wrapper as HTMLElement, {
+                    x: 0,
+                    y: 0,
                     html2canvas: {
                         scale: 1,
                         allowTaint: true,
@@ -148,25 +159,25 @@ const PrintSection: FC<PrintSectionProps> = ({
                 throw new Error('Upload to S3 failed')
             }
 
-            // update process step with measure info
-            await updateProcessStepWithMeasure({
-                userId: userId,
-                processId: processId!,
-                processStepId: processStepId!,
-                measureName,
-                finalReportDocumentId: vaporCoreDocumentId,
-                jobId: jobId,
-            })
+            // // update process step with measure info
+            // await updateProcessStepWithMeasure({
+            //     userId: userId,
+            //     processId: processId!,
+            //     processStepId: processStepId!,
+            //     measureName,
+            //     finalReportDocumentId: vaporCoreDocumentId,
+            //     jobId: jobId,
+            // })
 
-            // update process step to CLOSED if all measures complete
-            await closeProcessStepIfAllMeasuresComplete(
-                processId,
-                processStepId,
-                userId,
-            )
+            // // update process step to CLOSED if all measures complete
+            // await closeProcessStepIfAllMeasuresComplete(
+            //     processId,
+            //     processStepId,
+            //     userId,
+            // )
 
-            setIsSubmitted(true)
-            setSubmissionStatus('success')
+            // setIsSubmitted(true)
+            // setSubmissionStatus('success')
         } catch (error) {
             console.error('Submission failed:', error)
             alert('Submission failed. Please try again.')
@@ -231,7 +242,7 @@ const PrintSection: FC<PrintSectionProps> = ({
             )}
 
             <div id={printContainerId}>
-                <div className="print-wrapper">{children}</div>
+                <div className="avoid-page-breaks">{children}</div>
             </div>
         </>
     )
