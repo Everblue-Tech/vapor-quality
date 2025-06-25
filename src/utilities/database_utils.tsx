@@ -196,9 +196,14 @@ export async function retrieveDocFromDB(
 export const retrieveProjectDocs = async (db: any) => {
     const allDocs = await db.allDocs({ include_docs: true })
 
-    const projects = allDocs.rows.filter((doc: any) => {
-        return doc.doc && doc.doc._id?.startsWith('project_')
-    })
+        console.log(
+            '[retrieveProjectDocs] allDocs result:',
+            allDocs.rows.map((r:any) => r.doc),
+        )
+
+        const projects = allDocs.rows
+            .map((row:any) => row.doc as any)
+            .filter((doc:any) => doc.type === 'project')
 
     return projects.map((p: any) => ({
         _id: p.doc._id,

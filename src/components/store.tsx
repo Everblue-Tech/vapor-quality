@@ -413,6 +413,67 @@ export const StoreProvider: FC<StoreProviderProps> = ({
      * @param blob
      * @param id
      */
+    // const upsertAttachment: UpsertAttachment = async (
+    //     blob: Blob,
+    //     id: string,
+    //     fileName?: string,
+    //     photoMetadata?: Attachment['metadata'],
+    // ) => {
+    //     const metadata: Attachment['metadata'] = photoMetadata
+    //         ? photoMetadata
+    //         : isPhoto(blob)
+    //           ? await getMetadataFromPhoto(blob)
+    //           : {
+    //                 filename: fileName,
+    //                 timestamp: new Date(Date.now()).toISOString(),
+    //             }
+
+    //     // Storing SingleAttachmentMetaData in the DB
+    //     upsertMetadata('attachments.' + id, metadata)
+
+    //     // Store the blob in memory
+    //     const newAttachments = {
+    //         ...attachments,
+    //         [id]: {
+    //             blob,
+    //             metadata,
+    //         },
+    //     }
+
+    //     setAttachments(newAttachments)
+
+    //     // Persist the blob
+    //     const upsertBlobDB = async (
+    //         rev: string,
+    //     ): Promise<PouchDB.Core.Response | null> => {
+    //         let result = null
+    //         if (db != null) {
+    //             try {
+    //                 result = await db.putAttachment(
+    //                     docId,
+    //                     id,
+    //                     rev,
+    //                     blob,
+    //                     blob.type,
+    //                 )
+    //             } catch (err) {
+    //                 // Try again with the latest rev value
+    //                 const doc = await db.get(docId)
+    //                 result = await upsertBlobDB(doc._rev)
+    //             } finally {
+    //                 if (result != null) {
+    //                     revisionRef.current = result.rev
+    //                 }
+    //             }
+    //         }
+    //         return result
+    //     }
+
+    //     if (revisionRef.current) {
+    //         upsertBlobDB(revisionRef.current)
+    //     }
+    // }
+
     const upsertAttachment: UpsertAttachment = async (
         blob: Blob,
         id: string,
@@ -431,48 +492,119 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         // Storing SingleAttachmentMetaData in the DB
         upsertMetadata('attachments.' + id, metadata)
 
-        // Store the blob in memory
-        const newAttachments = {
-            ...attachments,
-            [id]: {
-                blob,
-                metadata,
-            },
-        }
-
-        setAttachments(newAttachments)
-
-        // Persist the blob
+        // Persist the blob with proper revision handling
         const upsertBlobDB = async (
-            rev: string,
+            maxRetries = 3,
         ): Promise<PouchDB.Core.Response | null> => {
-            let result = null
-            if (db != null) {
+            if (!db) {
+                console.warn('Database not available')
+                return null
+            }
+
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
-                    result = await db.putAttachment(
-                        docId,
-                        id,
-                        rev,
-                        blob,
-                        blob.type,
-                    )
-                } catch (err) {
-                    // Try again with the latest rev value
-                    const doc = await db.get(docId)
-                    result = await upsertBlobDB(doc._rev)
-                } finally {
-                    if (result != null) {
-                        revisionRef.current = result.rev
+                    // Get the latest document revision
+                    let currentRev = revisionRef.current
+
+                    if (!currentRev) {
+                        // If no revision available, try to get the document first
+                        try {
+                            const doc = await db.get(docId)
+                            currentRev = doc._rev
+                            revisionRef.current = currentRev
+                        } catch (err: any) {
+                            if (err.name !== 'not_found') {
+                                throw err
+                            }
+                            // Document doesn't exist, currentRev stays undefined
+                        }
+                    }
+
+                    // Handle undefined revision for new documents
+                    let result: PouchDB.Core.Response
+                    if (currentRev) {
+                        result = await db.putAttachment(
+                            docId,
+                            id,
+                            currentRev,
+                            blob,
+                            blob.type,
+                        )
+                    } else {
+                        // For new documents, use the overload that doesn't require revision
+                        result = await db.putAttachment(
+                            docId,
+                            id,
+                            blob,
+                            blob.type,
+                        )
+                    }
+
+                    // Update the revision reference with the new revision
+                    revisionRef.current = result.rev
+                    return result
+                } catch (err: any) {
+                    console.error(`Attempt ${attempt + 1} failed:`, err)
+
+                    if (err.name === 'conflict' && attempt < maxRetries - 1) {
+                        // Get the latest revision and try again
+                        try {
+                            const doc = await db.get(docId)
+                            revisionRef.current = doc._rev
+                            console.log(
+                                `Retrying with updated revision: ${doc._rev}`,
+                            )
+                        } catch (getErr: any) {
+                            if (getErr.name === 'not_found') {
+                                // Document was deleted, reset revision
+                                revisionRef.current = undefined
+                            } else {
+                                throw getErr
+                            }
+                        }
+                        // Continue to next iteration
+                        continue
+                    } else {
+                        console.error('Failed to save attachment:', err)
+                        throw err
                     }
                 }
             }
-            return result
+
+            throw new Error(
+                `Failed to save attachment after ${maxRetries} attempts`,
+            )
         }
 
-        if (revisionRef.current) {
-            upsertBlobDB(revisionRef.current)
+        try {
+            // Wait for the blob to be persisted and get the result
+            const result = await upsertBlobDB()
+
+            if (result) {
+                // Store the blob in memory with digest from the persistence result
+                // We need to get the updated document to get the digest
+                const updatedDoc = await db.get(docId)
+                const attachmentInfo = updatedDoc._attachments?.[id]
+
+                const newAttachments = {
+                    ...attachments,
+                    [id]: {
+                        blob,
+                        digest: attachmentInfo?.digest || '', // Include digest for proper comparison
+                        metadata,
+                    } satisfies Attachment,
+                }
+
+                setAttachments(newAttachments)
+                console.log(`Successfully stored attachment: ${id}`)
+            }
+        } catch (error) {
+            console.error('Error persisting attachment:', error)
+            // Don't update the in-memory state if persistence failed
+            throw error
         }
     }
+
     return (
         <StoreContext.Provider
             value={{
@@ -659,283 +791,71 @@ export const closeProcessStepIfAllMeasuresComplete = async (
     }
 }
 
-export const saveToVaporCoreDB = async (
-    userId: string | null,
-    processStepId: string | null,
-    form_data: any,
-    setSelectedFormId?: (id: string) => void,
-    handleFormSelect?: (form: FormEntry) => void,
-    fileToUpload?: Blob | File | null,
-): Promise<void> => {
-    if (!userId || !processStepId) {
-        console.warn('Missing userId or processStepId in saveToVaporCoreDB')
-        return
-    }
-
-    let formId = localStorage.getItem('form_id')
-
-    const formData = {
-        user_id: userId,
-        process_step_id: processStepId,
-        form_data: form_data,
-    }
-
-    let uploadedDocumentId
-
-    try {
-        // if file and valid s3Config provided, upload file to s3
-        if (fileToUpload) {
-            try {
-                const organizationId = localStorage.getItem('organization_id')
-                if (!organizationId) {
-                    console.error('Missing organizationId in localStorage')
-                } else {
-                    uploadedDocumentId = await uploadImageToS3AndCreateDocument(
-                        {
-                            file: fileToUpload,
-                            userId,
-                            organizationId,
-                            documentType: 'quality install photo',
-                            measureName: 'project-photo',
-                        },
-                    )
-                    if (uploadedDocumentId) {
-                        if (!form_data.documents) {
-                            form_data.documents = []
-                        }
-                        form_data.documents.push({
-                            document_id: uploadedDocumentId,
-                            documentType: 'quality install photo',
-                        })
-                    }
-                }
-            } catch (err) {
-                console.error(
-                    'Failed to upload photo to s3 and create document:',
-                    err,
-                )
-            }
-        }
-
-        let response: Response
-
-        if (formId) {
-            try {
-                const response = await fetch(
-                    `http://localhost:5000/api/quality-install/${formId}`,
-                    {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(formData),
-                    },
-                )
-
-                if (response.status === 404) {
-                    console.warn(
-                        `Form with id ${formId} not found. Attempting to create.`,
-                    )
-                    // Try POST to create it
-                    const createResponse = await fetch(
-                        `http://localhost:5000/api/quality-install`,
-                        {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                id: formId,
-                                ...formData,
-                            }),
-                        },
-                    )
-                    if (!createResponse.ok) {
-                        throw new Error(
-                            `Failed to create form with id ${formId}`,
-                        )
-                    }
-                } else if (!response.ok) {
-                    throw new Error(`Failed to update form with id ${formId}`)
-                }
-            } catch (error) {
-                console.error('Error saving to Vapor Core DB:', error)
-                throw error
-            }
-        } else {
-            // no formId, create a new one
-            response = await fetch(
-                'http://localhost:5000/api/quality-install',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(formData),
-                },
-            )
-
-            const data = await response.json()
-            formId = data.form_data_id as string
-            localStorage.setItem('form_id', formId)
-
-            if (setSelectedFormId && handleFormSelect) {
-                const newEntry: FormEntry = {
-                    id: formId,
-                    user_id: userId!,
-                    process_step_id: processStepId!,
-                    form_data: formData.form_data,
-                    created_at: new Date().toISOString(),
-                    updated_at: null,
-                }
-
-                setSelectedFormId(formId)
-                handleFormSelect(newEntry)
-            }
-        }
-    } catch (error) {
-        console.error('Error saving to RDS:', error)
-    }
-}
-
-export const fetchExistingRDSForm = async (
-    userId: string,
-    processStepId: string,
-): Promise<any | null> => {
+export async function saveProjectToRDS({
+    userId,
+    processStepId,
+    formData,
+    docId,
+}: {
+    userId: string
+    processStepId: string
+    formData: any
+    docId: string
+}) {
     const response = await fetch(
-        `http://localhost:5000/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+        `${REACT_APP_VAPORCORE_URL}/api/quality-install`,
         {
-            method: 'GET',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                process_step_id: processStepId,
+                id: docId,
+                form_data: formData,
+            }),
         },
     )
 
     if (!response.ok) {
-        console.warn('No form data found or error fetching from RDS')
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to save project info to RDS')
+    }
+
+    return await response.json()
+}
+
+export async function getProjectsFromRDS(
+    userId: string,
+    processStepId: string,
+) {
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+    )
+
+    if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to fetch project data from RDS')
+    }
+
+    const result = await response.json()
+    return result.forms
+}
+
+export async function fetchDocumentMetadata(
+    documentId: string,
+): Promise<string | null> {
+    const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
+
+    const response = await fetch(
+        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
+    )
+    if (!response.ok) {
+        console.warn(`[fetchDocumentMetadata] Failed for ${documentId}`)
         return null
     }
 
-    const data = await response.json()
-    if (data.success && data.forms?.length > 0) {
-        return data.forms[0] // each process/process_step only has 1 project entry
-    }
-
-    return null
-}
-
-function base64ToBlob(base64: string, contentType: string): Blob {
-    const byteCharacters = atob(base64)
-    const byteNumbers = new Array(byteCharacters.length)
-    for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i)
-    }
-    const byteArray = new Uint8Array(byteNumbers)
-    return new Blob([byteArray], { type: contentType })
-}
-
-export const hydrateFromRDS = async (rdsEntry: any, db: PouchDB.Database) => {
-    try {
-        if (!rdsEntry || !rdsEntry.form_data) {
-            console.warn('No form_data found in RDS entry, skipping hydration.')
-            return
-        }
-
-        const existing = await db.allDocs({ include_docs: true })
-        const projectExists = existing.rows.some(doc =>
-            doc.id.startsWith('project_'),
-        )
-
-        if (projectExists) {
-            console.log(
-                'Local PouchDB already populated with project document.',
-            )
-            return
-        }
-
-        const RESERVED_KEYS = new Set(['_id', '_rev', '_attachments'])
-        const importedDocs: Record<string, any> = {}
-        const childrenIds: string[] = []
-        const inlinedAttachments: Record<
-            string,
-            { content_type: string; data: string }
-        > = {}
-
-        console.log('rdsEntry', rdsEntry)
-
-        for (const [docId, docBody] of Object.entries(rdsEntry.form_data) as [
-            string,
-            Record<string, any>,
-        ][]) {
-            if (!docId || typeof docBody !== 'object' || docBody === null)
-                continue
-            if (RESERVED_KEYS.has(docId)) continue
-
-            const idToUse = docBody._id || docId
-            if (!idToUse) continue
-
-            console.log('docBody', docBody)
-
-            const { _attachments, ...docWithoutAttachments } = docBody
-            await db.put({ ...docWithoutAttachments, _id: idToUse })
-            importedDocs[idToUse] = docBody
-
-            console.log(
-                `docId: ${docId}, has _attachments:`,
-                docBody._attachments,
-            )
-
-            // inline attachments into project-level _attachments
-            if (_attachments) {
-                for (const [attachmentId, attachment] of Object.entries(
-                    _attachments,
-                ) as [string, { data: string; content_type: string }][]) {
-                    const blob = base64ToBlob(
-                        attachment.data,
-                        attachment.content_type,
-                    )
-                    await db.putAttachment(
-                        idToUse,
-                        attachmentId,
-                        blob,
-                        attachment.content_type,
-                    )
-
-                    console.log(
-                        `Saved attachment: ${attachmentId} to ${idToUse}`,
-                    )
-
-                    inlinedAttachments[attachmentId] = {
-                        content_type: attachment.content_type,
-                        data: attachment.data,
-                    }
-                }
-            }
-
-            // track install docs (everything that's not metadata_ or data_)
-            if (!['metadata_', 'data_'].includes(idToUse)) {
-                childrenIds.push(idToUse)
-            }
-        }
-
-        // add top-level project document that links to metadata_ and data_
-        const projectId = `project_${rdsEntry.id}`
-        const projectDoc = {
-            _id: projectId,
-            metadata_: importedDocs['metadata_'],
-            data_: importedDocs['data_'],
-            children: childrenIds,
-            _attachments: Object.keys(inlinedAttachments).length
-                ? inlinedAttachments
-                : undefined,
-        }
-
-        await db.put(projectDoc)
-
-        if (rdsEntry.id) {
-            localStorage.setItem('form_id', rdsEntry.id)
-        }
-
-        console.log(`Hydrated project into PouchDB: ${projectId}`)
-    } catch (err) {
-        console.error('Error hydrating from RDS:', err)
-    }
+    const result = await response.json()
+    return result?.data?.file_path || null
 }

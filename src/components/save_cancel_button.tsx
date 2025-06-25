@@ -3,7 +3,8 @@ import { FC, useState, useEffect } from 'react'
 import type { MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { exportDocumentAsJSONObject, useDB } from '../utilities/database_utils'
-import { saveToVaporCoreDB } from './store'
+import { saveProjectToRDS } from './store'
+import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 
 interface SaveCancelButtonProps {
     id: string
@@ -46,34 +47,86 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
             return
         }
 
-        deleteEmptyProject()
+        navigate('/', { replace: true })
+
+        // deleteEmptyProject()
     }
 
     const handleSaveClick = async () => {
         try {
             const projectDoc: any = await db.get(id)
+
             if (!projectDoc.metadata_ || !projectDoc.metadata_.doc_name) {
                 alert('Please enter a project name before saving.')
                 return
             }
 
-            const userId = localStorage.getItem('user_id')
-            const processStepId = localStorage.getItem('process_step_id')
+            // upload photo attachments to S3 and replace metadata
+            if (projectDoc._attachments && projectDoc.metadata_?.attachments) {
+                const updatedMetadata = { ...projectDoc.metadata_ }
 
-            // Export form_data from local PouchDB
-            const form_data_json = await exportDocumentAsJSONObject(
-                db,
-                id,
-                false,
-            )
-            const form_data = JSON.parse(form_data_json)?.all_docs ?? {}
+                for (const attachmentId of Object.keys(
+                    projectDoc._attachments,
+                )) {
+                    const existing =
+                        projectDoc.metadata_?.attachments?.[attachmentId]
+                    if (existing?.documentId) continue // skip if already uploaded
 
-            await saveToVaporCoreDB(userId, processStepId, form_data)
+                    const blob = await db.getAttachment(id, attachmentId)
+
+                    const documentId = await uploadImageToS3AndCreateDocument({
+                        file: blob,
+                        userId: localStorage.getItem('user_id'),
+                        organizationId: localStorage.getItem('organization_id'),
+                        documentType: 'Quality Install Photo',
+                        measureName:
+                            projectDoc.metadata_?.doc_name || 'unknown',
+                    })
+
+                    // re-extract geolocation data
+                    const { getMetadataFromPhoto } = await import(
+                        '../utilities/photo_utils'
+                    )
+                    const photoMetadata = await getMetadataFromPhoto(blob)
+
+                    updatedMetadata.attachments[attachmentId] = {
+                        ...photoMetadata,
+                        documentId,
+                        timestamp: new Date().toISOString(),
+                    }
+                }
+
+                // persist the updated metadata back to PouchDB
+                await db.put({
+                    ...projectDoc,
+                    _rev: projectDoc._rev,
+                    metadata_: updatedMetadata,
+                    type: 'project',
+                })
+            }
+
+            // send the full form data to RDS
+            const updatedDoc = await db.get(id)
+            console.log(updatedDoc)
+            const formData = {
+                metadata_: updatedDoc.metadata_,
+                data_: updatedDoc.data_,
+                type: 'project',
+                docId: id,
+            }
+
+            await saveProjectToRDS({
+                userId: localStorage.getItem('user_id')!,
+                processStepId: localStorage.getItem('process_step_id')!,
+                formData,
+                docId: id,
+            })
 
             updateValue('created')
             navigate('/', { replace: true })
         } catch (error) {
-            console.error('Error saving project:', error)
+            console.error('Error saving project with attachments:', error)
+            alert('Save failed. See console for details.')
         }
     }
 
