@@ -498,13 +498,30 @@ visibility: hidden;}
 }
 
 .pdf-page {
-  width: 380pt; 
+  width: 380pt;
   height: 625pt;
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+  page-break-after: always;
+  box-sizing: border-box;
+}
+
+.pdf-page-content {
+  width: 100%;
+  height: 100%;
   box-sizing: border-box;
   padding: 30pt 40pt;
   overflow: hidden;
-  page-break-after: always;
-  position: relative;
+}
+
+.pdf-page-content img {
+  max-height: 200pt; /* ~2.75 in */
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  margin-bottom: 10pt;
 }
 
 .pdf-page:last-of-type {
@@ -525,6 +542,11 @@ visibility: hidden;}
 
 .pdf-page {
   border: 1px dashed red;
+}
+
+.pdf-page-content {
+    border: 1px dashed green;
+
 }
 
 
