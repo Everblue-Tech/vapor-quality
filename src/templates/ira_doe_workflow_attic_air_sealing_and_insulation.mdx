@@ -234,16 +234,11 @@
   <Tab eventKey="report"  title="Report">
     <PrintSection label="Print Report">
     <div className="pdf-wrapper">
-    <div className="pdf-page">
-
     ---
     # Attic Air Sealing and Insulation Upgrade
     ## Photo Report
 
     <ProjectInfoReport {...props} />
-  </div>
-
-  <div className="pdf-page">
 
     ## Existing Conditions
 
@@ -271,16 +266,12 @@
 
     <p> What is the existing insulation in the ceiling?  <strong> { props.data?.existing_insulation_type} </strong></p>
     <p> What is the existing insulation R-value in the ceiling?  <strong>{ props?.data.airsealing_r_value} </strong></p>
-</div>
-<div className="pdf-page">
+
     ## General Safety
     <p> What is the roof condition?   <strong>{ props.data?.roof_condition} </strong></p>
     <p> Are there signs of mold or moisture in the attic?  <strong> { props.data?.signs_of_mold_or_moisture} </strong></p>
     <p> Has an mechanical ventilation calculation been performed pre-retrofit?  <strong>{ props.data?.pre_retrofit_ashrae_62_2_calculation} </strong></p>
     <p> Have the answers to these safety questions been disclosed to the homeowner? <strong> { props.data?.safety_questions_to_homeowner}</strong></p>
-</div>
-<div className="pdf-page">
-<div className="pdf-page-content">
 
     ## Installation - Air Sealing Details
 
@@ -294,9 +285,6 @@
       Photo of a leaky recessed light fixture treatment.
       The photo below could be showing a recessed light fixture sealed from the attic suing a recessed light cover or sealed from below using an airtight LED retrofit fixture.
     </Photo>
-</div>
-</div>
-
     <Photo id="chimney_dam_photo" label="Chimney Dam – Photo">
        Photo of fire caulking and sheet metal dam around chimney
     </Photo>

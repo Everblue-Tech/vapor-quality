@@ -1,7 +1,8 @@
 import { useId, useState, FC, ReactNode, useEffect } from 'react'
 import print from 'print-js'
 import Button from 'react-bootstrap/Button'
-import jsPDF from 'jspdf'
+// eslint-disable-next-line
+import html2pdf from 'html2pdf.js'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 import { useDB } from '../utilities/database_utils'
 import {
@@ -125,26 +126,19 @@ const PrintSection: FC<PrintSectionProps> = ({
                 return
             }
 
-            const doc = new jsPDF({
-                orientation: 'portrait',
-                unit: 'pt',
-                format: 'a4',
-            })
+            const opt = {
+                margin: 7,
+                filename: 'report.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 1, useCORS: true, logging: true },
+                jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all', 'css'] },
+            }
 
-            await new Promise<void>((resolve, reject) => {
-                doc.html(wrapper as HTMLElement, {
-                    x: 0,
-                    y: 0,
-                    html2canvas: {
-                        scale: 1,
-                        allowTaint: true,
-                        useCORS: true,
-                    },
-                    callback: () => resolve(),
-                })
-            })
-
-            const pdfBlob = doc.output('blob')
+            const pdfBlob = await html2pdf()
+                .set(opt)
+                .from(wrapper)
+                .output('blob')
 
             // create document ID in vapor-core, upload to S3
             vaporCoreDocumentId = await uploadImageToS3AndCreateDocument({
