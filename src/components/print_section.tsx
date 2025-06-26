@@ -152,7 +152,7 @@ const PrintSection: FC<PrintSectionProps> = ({
             if (!vaporCoreDocumentId) {
                 throw new Error('Upload to S3 failed')
             }
-
+            //COMMENTED OUT FOR TESTING - it's broken anyway apparently 
             // // update process step with measure info
             // await updateProcessStepWithMeasure({
             //     userId: userId,
