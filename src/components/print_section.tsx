@@ -152,26 +152,25 @@ const PrintSection: FC<PrintSectionProps> = ({
             if (!vaporCoreDocumentId) {
                 throw new Error('Upload to S3 failed')
             }
-            //COMMENTED OUT FOR TESTING - it's broken anyway apparently
-            // // update process step with measure info
-            // await updateProcessStepWithMeasure({
-            //     userId: userId,
-            //     processId: processId!,
-            //     processStepId: processStepId!,
-            //     measureName,
-            //     finalReportDocumentId: vaporCoreDocumentId,
-            //     jobId: jobId,
-            // })
+            // update process step with measure info
+            await updateProcessStepWithMeasure({
+                userId: userId,
+                processId: processId!,
+                processStepId: processStepId!,
+                measureName,
+                finalReportDocumentId: vaporCoreDocumentId,
+                jobId: jobId,
+            })
 
-            // // update process step to CLOSED if all measures complete
-            // await closeProcessStepIfAllMeasuresComplete(
-            //     processId,
-            //     processStepId,
-            //     userId,
-            // )
+            // update process step to CLOSED if all measures complete
+            await closeProcessStepIfAllMeasuresComplete(
+                processId,
+                processStepId,
+                userId,
+            )
 
-            // setIsSubmitted(true)
-            // setSubmissionStatus('success')
+            setIsSubmitted(true)
+            setSubmissionStatus('success')
         } catch (error) {
             console.error('Submission failed:', error)
             alert('Submission failed. Please try again.')
