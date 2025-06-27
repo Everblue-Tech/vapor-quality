@@ -13,10 +13,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { deleteEmptyProjects, useDB } from '../utilities/database_utils'
 import ImportDoc from './import_document_wrapper'
 import ExportDoc from './export_document_wrapper'
-import {
-    persistSessionState,
-    StoreContext
-} from './store'
+import { persistSessionState, StoreContext } from './store'
 import { getConfig } from '../config'
 import {
     hydratePhotoFromDocumentId,
@@ -780,61 +777,48 @@ const Home: FC = () => {
         key => formPrefillData[key as keyof typeof formPrefillData],
     )
 
-return (
-    <>
-        {isHydrating ? (
-            <div
-                className="d-flex justify-content-center align-items-center"
-                style={{ minHeight: '200px' }}
-            >
-                <div className="spinner-border text-primary" role="status">
-                    <span className="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        ) : (
-            <div>
-                {/* Show prefill data indicator */}
-                {hasPrefillData && (
-                    <div className="alert alert-info mb-3">
-                        <strong>Form data received from parent application</strong>
-                        <details className="mt-2">
-                            <summary>View received data</summary>
-                            <pre
-                                className="mt-2 mb-0"
-                                style={{ fontSize: '0.8em' }}
-                            >
-                                {JSON.stringify(formPrefillData, null, 2)}
-                            </pre>
-                        </details>
+    return (
+        <>
+            {isHydrating ? (
+                <div
+                    className="d-flex justify-content-center align-items-center"
+                    style={{ minHeight: '200px' }}
+                >
+                    <div className="spinner-border text-primary" role="status">
+                        <span className="visually-hidden">Loading...</span>
                     </div>
-                )}
-
-                {Object.keys(projectList).length === 0 ? (
-                    <center>
-                        <br />
-                        <p className="welcome-header">
-                            Welcome to the Quality Install Tool
-                        </p>
-                        <br />
-                        <p>For your records</p>
-                        <p>For your clients</p>
-                        <p>For quality assurance reporting</p>
-                        <div className="button-container-center" key={0}>
-                            <Button
-                                onClick={handleAddJob}
-                                alt-text="Add a New Project"
-                            >
-                                {hasPrefillData
-                                    ? 'Create Project with Prefilled Data'
-                                    : 'Add a New Project'}
-                            </Button>
-                            <ImportDoc id="project_json" label="Import a Project" />
+                </div>
+            ) : (
+                <div>
+                    {/* Show prefill data indicator */}
+                    {hasPrefillData && (
+                        <div className="alert alert-info mb-3">
+                            <strong>
+                                Form data received from parent application
+                            </strong>
+                            <details className="mt-2">
+                                <summary>View received data</summary>
+                                <pre
+                                    className="mt-2 mb-0"
+                                    style={{ fontSize: '0.8em' }}
+                                >
+                                    {JSON.stringify(formPrefillData, null, 2)}
+                                </pre>
+                            </details>
                         </div>
-                    </center>
-                ) : (
-                    <div>
-                        {projectList.length === 0 && (
-                            <div className="align-right padding">
+                    )}
+
+                    {Object.keys(projectList).length === 0 ? (
+                        <center>
+                            <br />
+                            <p className="welcome-header">
+                                Welcome to the Quality Install Tool
+                            </p>
+                            <br />
+                            <p>For your records</p>
+                            <p>For your clients</p>
+                            <p>For quality assurance reporting</p>
+                            <div className="button-container-center" key={0}>
                                 <Button
                                     onClick={handleAddJob}
                                     alt-text="Add a New Project"
@@ -843,49 +827,73 @@ return (
                                         ? 'Create Project with Prefilled Data'
                                         : 'Add a New Project'}
                                 </Button>
-                                <ImportDoc id="project_json" label="Import a Project" />
+                                <ImportDoc
+                                    id="project_json"
+                                    label="Import a Project"
+                                />
                             </div>
-                        )}
-                        {projectList.length > 0 && <div>{projects_display}</div>}
-                    </div>
-                )}
-            </div>
-        )}
+                        </center>
+                    ) : (
+                        <div>
+                            {projectList.length === 0 && (
+                                <div className="align-right padding">
+                                    <Button
+                                        onClick={handleAddJob}
+                                        alt-text="Add a New Project"
+                                    >
+                                        {hasPrefillData
+                                            ? 'Create Project with Prefilled Data'
+                                            : 'Add a New Project'}
+                                    </Button>
+                                    <ImportDoc
+                                        id="project_json"
+                                        label="Import a Project"
+                                    />
+                                </div>
+                            )}
+                            {projectList.length > 0 && (
+                                <div>{projects_display}</div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
 
-        <br />
-        <center>
-            <p className="welcome-content">
-                <br />
-                Click here to learn more about the{' '}
-                <a
-                    href="https://www.pnnl.gov/projects/quality-install-tool"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                >
-                    Quality Install Tool
-                </a>
-            </p>
-        </center>
+            <br />
+            <center>
+                <p className="welcome-content">
+                    <br />
+                    Click here to learn more about the{' '}
+                    <a
+                        href="https://www.pnnl.gov/projects/quality-install-tool"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        Quality Install Tool
+                    </a>
+                </p>
+            </center>
 
-        <Modal show={showDeleteConfirmation} onHide={cancelDeleteJob}>
-            <Modal.Header closeButton>
-                <Modal.Title>Confirm Delete</Modal.Title>
-            </Modal.Header>
-            <Modal.Body>
-                Are you sure you want to permanently delete{' '}
-                <b>{selectedProjectNameToDelete}</b>? This action cannot be undone.
-            </Modal.Body>
-            <Modal.Footer>
-                <Button variant="secondary" onClick={cancelDeleteJob}>
-                    Cancel
-                </Button>
-                <Button variant="danger" onClick={confirmDeleteJob}>
-                    Permanently Delete
-                </Button>
-            </Modal.Footer>
-        </Modal>
-    </>
-);
+            <Modal show={showDeleteConfirmation} onHide={cancelDeleteJob}>
+                <Modal.Header closeButton>
+                    <Modal.Title>Confirm Delete</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    Are you sure you want to permanently delete{' '}
+                    <b>{selectedProjectNameToDelete}</b>? This action cannot be
+                    undone.
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button variant="secondary" onClick={cancelDeleteJob}>
+                        Cancel
+                    </Button>
+                    <Button variant="danger" onClick={confirmDeleteJob}>
+                        Permanently Delete
+                    </Button>
+                </Modal.Footer>
+            </Modal>
+        </>
+    )
 }
 
 export default Home
