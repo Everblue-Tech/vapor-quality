@@ -43,6 +43,7 @@ const PrintSection: FC<PrintSectionProps> = ({
     const processId = localStorage.getItem('process_id')
     const processStepId = localStorage.getItem('process_step_id')
     const organizationId = localStorage.getItem('organization_id')
+    const applicationId = localStorage.getItem('application_id')
     const documentType = 'Quality Install Document'
 
     const printContainerId = useId()
@@ -134,11 +135,13 @@ const PrintSection: FC<PrintSectionProps> = ({
             })
 
             const pdfBlob = doc.output('blob')
+            console.log('APPLICATION_ID', applicationId)
 
             // create document ID in vapor-core, upload to S3
             vaporCoreDocumentId = await uploadImageToS3AndCreateDocument({
                 file: pdfBlob,
                 userId,
+                applicationId,
                 organizationId,
                 documentType,
                 measureName,
@@ -148,25 +151,27 @@ const PrintSection: FC<PrintSectionProps> = ({
                 throw new Error('Upload to S3 failed')
             }
 
+            // BROKEN ANYWAY - WILL FIX
+
             // update process step with measure info
-            await updateProcessStepWithMeasure({
-                userId: userId,
-                processId: processId!,
-                processStepId: processStepId!,
-                measureName,
-                finalReportDocumentId: vaporCoreDocumentId,
-                jobId: jobId,
-            })
+            // await updateProcessStepWithMeasure({
+            //     userId: userId,
+            //     processId: processId!,
+            //     processStepId: processStepId!,
+            //     measureName,
+            //     finalReportDocumentId: vaporCoreDocumentId,
+            //     jobId: jobId,
+            // })
 
-            // update process step to CLOSED if all measures complete
-            await closeProcessStepIfAllMeasuresComplete(
-                processId,
-                processStepId,
-                userId,
-            )
+            // // update process step to CLOSED if all measures complete
+            // await closeProcessStepIfAllMeasuresComplete(
+            //     processId,
+            //     processStepId,
+            //     userId,
+            // )
 
-            setIsSubmitted(true)
-            setSubmissionStatus('success')
+            // setIsSubmitted(true)
+            // setSubmissionStatus('success')
         } catch (error) {
             console.error('Submission failed:', error)
             alert('Submission failed. Please try again.')

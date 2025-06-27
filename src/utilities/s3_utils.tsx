@@ -44,12 +44,14 @@ export async function uploadImageToS3AndCreateDocument({
     file,
     userId,
     organizationId,
+    applicationId,
     documentType,
     measureName,
 }: {
     file: File | Blob
     userId: string | null
     organizationId: string | null
+    applicationId: string | null
     documentType: string
     measureName: string
 }) {
@@ -115,6 +117,8 @@ export async function uploadImageToS3AndCreateDocument({
                 document_type_id: documentTypeId,
                 file_path: s3Path,
                 organization_id: organizationId,
+                application: {},
+                application_id: applicationId,
                 expiration_date: null,
                 comments: `Uploaded photo from QIT: ${sanitizedFileName}`,
             }),

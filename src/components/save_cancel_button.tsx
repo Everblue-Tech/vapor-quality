@@ -78,6 +78,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                         file: blob,
                         userId: localStorage.getItem('user_id'),
                         organizationId: localStorage.getItem('organization_id'),
+                        applicationId: localStorage.getItem('application_id'),
                         documentType: 'Quality Install Photo',
                         measureName:
                             projectDoc.metadata_?.doc_name || 'unknown',
