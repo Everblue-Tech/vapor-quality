@@ -76,15 +76,12 @@ export async function uploadImageToS3AndCreateDocument({
         },
     })
 
-    const sanitizedFileName =
-        file instanceof File
-            ? file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-            : `upload_${Date.now()}`
-
     // normalize & convert measure name to kebab-case
     const sanitizedMeasureName = measureName.toLowerCase().replace(/\s+/g, '-')
 
-    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${Date.now()}_${sanitizedFileName}`
+    const fileName = `${Date.now()}_${applicationId}_${sanitizedMeasureName}`
+
+    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${fileName}`
 
     const putObjectCommand = new PutObjectCommand({
         Bucket: REACT_APP_AWS_S3_BUCKET,
@@ -117,10 +114,10 @@ export async function uploadImageToS3AndCreateDocument({
                 document_type_id: documentTypeId,
                 file_path: s3Path,
                 organization_id: organizationId,
-                application: {},
+                application: {}, // application object needed for document API call to succeed
                 application_id: applicationId,
                 expiration_date: null,
-                comments: `Uploaded photo from QIT: ${sanitizedFileName}`,
+                comments: `Uploaded photo from QIT: ${fileName}`,
             }),
         },
     )
