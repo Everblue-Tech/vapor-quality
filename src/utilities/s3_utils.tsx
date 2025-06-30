@@ -81,18 +81,13 @@ export async function uploadImageToS3AndCreateDocument({
 
     const fileName = `${Date.now()}_${applicationId}_${sanitizedMeasureName}`
 
-    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${fileName}`
+    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${fileName}.pdf`
 
     const putObjectCommand = new PutObjectCommand({
         Bucket: REACT_APP_AWS_S3_BUCKET,
         Key: s3Key,
         Body: new Uint8Array(await file.arrayBuffer()),
-        ContentType:
-            file instanceof File && file.type
-                ? file.type
-                : file instanceof Blob && file.type
-                  ? file.type
-                  : 'application/octet-stream',
+        ContentType: 'application/pdf',
         ServerSideEncryption: 'aws:kms',
         SSEKMSKeyId: REACT_APP_AWS_S3_KMS_KEY_ID,
     })

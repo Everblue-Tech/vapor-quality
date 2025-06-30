@@ -134,7 +134,12 @@ const PrintSection: FC<PrintSectionProps> = ({
                 })
             })
 
-            const pdfBlob = doc.output('blob')
+            const pdfBlob = new Blob([doc.output('arraybuffer')], {
+                type: 'application/pdf',
+            })
+
+            console.log('BLOB TYPE', pdfBlob.type)
+
             console.log('APPLICATION_ID', applicationId)
 
             // create document ID in vapor-core, upload to S3
@@ -151,27 +156,38 @@ const PrintSection: FC<PrintSectionProps> = ({
                 throw new Error('Upload to S3 failed')
             }
 
-            // BROKEN ANYWAY - WILL FIX
-
             // update process step with measure info
-            // await updateProcessStepWithMeasure({
-            //     userId: userId,
-            //     processId: processId!,
-            //     processStepId: processStepId!,
-            //     measureName,
-            //     finalReportDocumentId: vaporCoreDocumentId,
-            //     jobId: jobId,
-            // })
+            await updateProcessStepWithMeasure({
+                userId: userId,
+                processId: processId!,
+                processStepId: processStepId!,
+                measureName,
+                finalReportDocumentId: vaporCoreDocumentId,
+                jobId: jobId,
+            })
 
-            // // update process step to CLOSED if all measures complete
+            // send postMessage request back up to vapor-flow
+            // used to render finalized report data in the UI
+            const reportData = {
+                type: 'FINAL_REPORT_SUBMITTED',
+                payload: {
+                    applicationId: applicationId,
+                    measureName: measureName,
+                    finalReportDocumentId: vaporCoreDocumentId,
+                },
+            }
+
+            window.parent.postMessage(reportData, '*')
+
+            // update process step to CLOSED if all measures complete
             // await closeProcessStepIfAllMeasuresComplete(
             //     processId,
             //     processStepId,
             //     userId,
             // )
 
-            // setIsSubmitted(true)
-            // setSubmissionStatus('success')
+            setIsSubmitted(true)
+            setSubmissionStatus('success')
         } catch (error) {
             console.error('Submission failed:', error)
             alert('Submission failed. Please try again.')
