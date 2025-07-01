@@ -20,7 +20,7 @@ import {
     deleteDocumentById,
 } from '../utilities/s3_utils'
 
-// Define interface for the initialization data
+// define interface for the initialization data
 interface InitFormData {
     user_id: string
     application_id: string
@@ -28,7 +28,6 @@ interface InitFormData {
     process_id: string
     organization_id: string
     measures: string[]
-    // Add fields that should prefill the form
     project_name?: string
     street_address?: string
     city?: string
@@ -452,7 +451,7 @@ const Home: FC = () => {
                             try {
                                 await hydratePhotoFromDocumentId({
                                     documentId: meta.documentId,
-                                    entryId: attachmentId, // 🔧 USE attachmentId as storage key
+                                    entryId: attachmentId,
                                     attachmentId,
                                     upsertAttachment: tempUpsertAttachment,
                                 })
@@ -497,24 +496,81 @@ const Home: FC = () => {
         try {
             const projectDoc = await db.get(projectId)
 
-            // Structure the prefill data according to your form structure
+            // map state abbreviations to full names
+            const stateMapping: { [key: string]: string } = {
+                AL: 'Alabama',
+                AK: 'Alaska',
+                AZ: 'Arizona',
+                AR: 'Arkansas',
+                CA: 'California',
+                CO: 'Colorado',
+                CT: 'Connecticut',
+                DE: 'Delaware',
+                FL: 'Florida',
+                GA: 'Georgia',
+                HI: 'Hawaii',
+                ID: 'Idaho',
+                IL: 'Illinois',
+                IN: 'Indiana',
+                IA: 'Iowa',
+                KS: 'Kansas',
+                KY: 'Kentucky',
+                LA: 'Louisiana',
+                ME: 'Maine',
+                MD: 'Maryland',
+                MA: 'Massachusetts',
+                MI: 'Michigan',
+                MN: 'Minnesota',
+                MS: 'Mississippi',
+                MO: 'Missouri',
+                MT: 'Montana',
+                NE: 'Nebraska',
+                NV: 'Nevada',
+                NH: 'New Hampshire',
+                NJ: 'New Jersey',
+                NM: 'New Mexico',
+                NY: 'New York',
+                NC: 'North Carolina',
+                ND: 'North Dakota',
+                OH: 'Ohio',
+                OK: 'Oklahoma',
+                OR: 'Oregon',
+                PA: 'Pennsylvania',
+                RI: 'Rhode Island',
+                SC: 'South Carolina',
+                SD: 'South Dakota',
+                TN: 'Tennessee',
+                TX: 'Texas',
+                UT: 'Utah',
+                VT: 'Vermont',
+                VA: 'Virginia',
+                WA: 'Washington',
+                WV: 'West Virginia',
+                WI: 'Wisconsin',
+                WY: 'Wyoming',
+            }
+
+            // get full state name, fall back to original value if not found
+            const stateValue = formPrefillData.state || ''
+            const fullStateName = stateMapping[stateValue] || stateValue
+
             const prefillStructure = {
                 data_: {
                     project_info: {
                         project_name: formPrefillData.project_name || '',
                     },
-                    installer_info: {
-                        technician_name: formPrefillData.technician_name || '',
-                        installation_company:
+                    installer: {
+                        name: formPrefillData.technician_name || '',
+                        company_name:
                             formPrefillData.installation_company || '',
-                        company_address: formPrefillData.company_address || '',
-                        company_phone: formPrefillData.company_phone || '',
-                        company_email: formPrefillData.company_email || '',
+                        mailing_address: formPrefillData.company_address || '',
+                        phone: formPrefillData.company_phone || '',
+                        email: formPrefillData.company_email || '',
                     },
                     location: {
                         street_address: formPrefillData.street_address || '',
                         city: formPrefillData.city || '',
-                        state: formPrefillData.state || '',
+                        state: fullStateName,
                         zip_code: formPrefillData.zip_code || '',
                     },
                     applicant_info: {
