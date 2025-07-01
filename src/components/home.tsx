@@ -20,6 +20,31 @@ import {
     deleteDocumentById,
 } from '../utilities/s3_utils'
 
+// Define interface for the initialization data
+interface InitFormData {
+    user_id: string
+    application_id: string
+    step_id: string
+    process_id: string
+    organization_id: string
+    measures: string[]
+    // Add fields that should prefill the form
+    project_name?: string
+    street_address?: string
+    city?: string
+    state?: string
+    zip_code?: string
+    technician_name?: string
+    installation_company?: string
+    company_address?: string
+    company_phone?: string
+    company_email?: string
+    applicant_first_name?: string
+    applicant_last_name?: string
+    applicant_email?: string
+    applicant_phone?: string
+}
+
 /**
  * Home:  Renders the Home page for the APP
  *
@@ -38,6 +63,9 @@ const Home: FC = () => {
     const [applicationId, setApplicationId] = useState<string | null>(null)
     const [processStepId, setProcessStepId] = useState<string | null>(null)
     const [processId, setProcessId] = useState<string | null>(null)
+    const [formPrefillData, setFormPrefillData] = useState<
+        Partial<InitFormData>
+    >({})
     const hasHydratedRef = useRef(false)
     const [isHydrating, setIsHydrating] = useState(false)
 
@@ -64,26 +92,48 @@ const Home: FC = () => {
             }
 
             if (event.data?.type === 'INIT_FORM_DATA') {
-                const {
-                    user_id,
-                    application_id,
-                    step_id,
-                    process_id,
-                    organization_id,
-                    measures,
-                } = event.data.payload
+                const payload = event.data.payload as InitFormData
 
-                localStorage.setItem('user_id', user_id)
-                localStorage.setItem('application_id', application_id)
-                localStorage.setItem('process_step_id', step_id)
-                localStorage.setItem('process_id', process_id)
-                localStorage.setItem('organization_id', organization_id)
-                localStorage.setItem('measures', JSON.stringify(measures))
+                // Store basic session data
+                localStorage.setItem('user_id', payload.user_id)
+                localStorage.setItem('application_id', payload.application_id)
+                localStorage.setItem('process_step_id', payload.step_id)
+                localStorage.setItem('process_id', payload.process_id)
+                localStorage.setItem('organization_id', payload.organization_id)
+                localStorage.setItem(
+                    'measures',
+                    JSON.stringify(payload.measures),
+                )
 
-                setUserId(user_id)
-                setApplicationId(application_id)
-                setProcessStepId(step_id)
-                setProcessId(process_id)
+                // Store prefill data
+                const prefillData: Partial<InitFormData> = {
+                    project_name: payload.project_name,
+                    street_address: payload.street_address,
+                    city: payload.city,
+                    state: payload.state,
+                    zip_code: payload.zip_code,
+                    technician_name: payload.technician_name,
+                    installation_company: payload.installation_company,
+                    company_address: payload.company_address,
+                    company_phone: payload.company_phone,
+                    company_email: payload.company_email,
+                    applicant_first_name: payload.applicant_first_name,
+                    applicant_last_name: payload.applicant_last_name,
+                    applicant_email: payload.applicant_email,
+                    applicant_phone: payload.applicant_phone,
+                }
+
+                // Store prefill data in localStorage for persistence
+                localStorage.setItem(
+                    'form_prefill_data',
+                    JSON.stringify(prefillData),
+                )
+
+                setUserId(payload.user_id)
+                setApplicationId(payload.application_id)
+                setProcessStepId(payload.step_id)
+                setProcessId(payload.process_id)
+                setFormPrefillData(prefillData)
             }
         }
 
@@ -95,6 +145,19 @@ const Home: FC = () => {
     useEffect(() => {
         persistSessionState({ userId, applicationId, processId, processStepId })
     }, [userId, applicationId, processId, processStepId])
+
+    // Load prefill data from localStorage on component mount
+    useEffect(() => {
+        const storedPrefillData = localStorage.getItem('form_prefill_data')
+        if (storedPrefillData) {
+            try {
+                const parsedData = JSON.parse(storedPrefillData)
+                setFormPrefillData(parsedData)
+            } catch (error) {
+                console.error('Error parsing stored prefill data:', error)
+            }
+        }
+    }, [])
 
     const refreshAndHydrateData = async () => {
         if (!userId || !processStepId) {
@@ -430,10 +493,73 @@ const Home: FC = () => {
         }
     }
 
+    const prefillNewProject = async (projectId: string) => {
+        try {
+            const projectDoc = await db.get(projectId)
+
+            // Structure the prefill data according to your form structure
+            const prefillStructure = {
+                data_: {
+                    project_info: {
+                        project_name: formPrefillData.project_name || '',
+                    },
+                    installer_info: {
+                        technician_name: formPrefillData.technician_name || '',
+                        installation_company:
+                            formPrefillData.installation_company || '',
+                        company_address: formPrefillData.company_address || '',
+                        company_phone: formPrefillData.company_phone || '',
+                        company_email: formPrefillData.company_email || '',
+                    },
+                    location: {
+                        street_address: formPrefillData.street_address || '',
+                        city: formPrefillData.city || '',
+                        state: formPrefillData.state || '',
+                        zip_code: formPrefillData.zip_code || '',
+                    },
+                    applicant_info: {
+                        first_name: formPrefillData.applicant_first_name || '',
+                        last_name: formPrefillData.applicant_last_name || '',
+                        email: formPrefillData.applicant_email || '',
+                        phone: formPrefillData.applicant_phone || '',
+                    },
+                },
+                metadata_: {
+                    ...projectDoc.metadata_,
+                    prefilled: true,
+                    prefill_timestamp: new Date().toISOString(),
+                },
+            }
+
+            // Update the project document with prefilled data
+            const updatedDoc = {
+                ...projectDoc,
+                ...prefillStructure,
+            }
+
+            await db.put(updatedDoc)
+            console.log('Project prefilled with data:', prefillStructure)
+        } catch (error) {
+            console.error('Error prefilling project:', error)
+        }
+    }
+
     const handleAddJob = async () => {
         // Dynamically import the function when needed
         const { putNewProject } = await import('../utilities/database_utils')
-        const updatedDBDoc: any = await putNewProject(db, '', '')
+        // Create project name from prefill data if available
+        const projectName =
+            formPrefillData.project_name ||
+            `${formPrefillData.applicant_first_name || ''} ${formPrefillData.applicant_last_name || ''}`.trim() ||
+            formPrefillData.street_address ||
+            'New Project'
+
+        const updatedDBDoc: any = await putNewProject(db, projectName, '')
+
+        // If we have prefill data, immediately populate the project
+        if (updatedDBDoc && Object.keys(formPrefillData).length > 0) {
+            await prefillNewProject(updatedDBDoc.id)
+        }
 
         // Refresh the project list after adding the new project
         await retrieveProjectInfo()
@@ -617,6 +743,12 @@ const Home: FC = () => {
                                       />
                                   </span>
                                   <b>{key.metadata_?.doc_name}</b>
+                                  {/* Show prefilled indicator */}
+                                  {key.metadata_?.prefilled && (
+                                      <span className="badge bg-info ms-2">
+                                          Prefilled
+                                      </span>
+                                  )}
                                   {key.data_?.location?.street_address && (
                                       <>
                                           <br />
@@ -641,6 +773,10 @@ const Home: FC = () => {
                   </div>
               ))
 
+    const hasPrefillData = Object.keys(formPrefillData).some(
+        key => formPrefillData[key as keyof typeof formPrefillData],
+    )
+
     return (
         <>
             {isHydrating ? (
@@ -654,6 +790,23 @@ const Home: FC = () => {
                 </div>
             ) : (
                 <div>
+                    {/* Show prefill data indicator */}
+                    {hasPrefillData && (
+                        <div className="alert alert-info mb-3">
+                            <strong>
+                                Form data received from parent application
+                            </strong>
+                            <details className="mt-2">
+                                <summary>View received data</summary>
+                                <pre
+                                    className="mt-2 mb-0"
+                                    style={{ fontSize: '0.8em' }}
+                                >
+                                    {JSON.stringify(formPrefillData, null, 2)}
+                                </pre>
+                            </details>
+                        </div>
+                    )}
                     {Object.keys(projectList).length == 0 && (
                         <center>
                             <br />
@@ -678,7 +831,9 @@ const Home: FC = () => {
                                     onClick={handleAddJob}
                                     alt-text="Add a New Project"
                                 >
-                                    Add a New Project
+                                    {hasPrefillData
+                                        ? 'Create Project with Prefilled Data'
+                                        : 'Add a New Project'}
                                 </Button>
                                 <ImportDoc
                                     id="project_json"
@@ -695,7 +850,9 @@ const Home: FC = () => {
                                         onClick={handleAddJob}
                                         alt-text="Add a New Project"
                                     >
-                                        Add a New Project
+                                        {hasPrefillData
+                                            ? 'Create Project with Prefilled Data'
+                                            : 'Add a New Project'}
                                     </Button>
                                     <ImportDoc
                                         id="project_json"
@@ -703,7 +860,9 @@ const Home: FC = () => {
                                     />
                                 </div>
                             )}
-                            {projects_display}
+                            {projectList.length > 0 && (
+                                <div>{projects_display}</div>
+                            )}
                         </div>
                     )}
                 </div>

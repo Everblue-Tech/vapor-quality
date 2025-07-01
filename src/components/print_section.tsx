@@ -180,11 +180,11 @@ const PrintSection: FC<PrintSectionProps> = ({
             window.parent.postMessage(reportData, '*')
 
             // update process step to CLOSED if all measures complete
-            // await closeProcessStepIfAllMeasuresComplete(
-            //     processId,
-            //     processStepId,
-            //     userId,
-            // )
+            await closeProcessStepIfAllMeasuresComplete(
+                processId,
+                processStepId,
+                userId,
+            )
 
             setIsSubmitted(true)
             setSubmissionStatus('success')
