@@ -166,6 +166,11 @@ const Home: FC = () => {
             return
         }
 
+        if (!db) {
+            console.log('[Refresh] Database not ready, skipping refresh')
+            return
+        }
+
         console.log('[Refresh] Starting full refresh...')
         setIsHydrating(true)
 
@@ -205,9 +210,19 @@ const Home: FC = () => {
         }
     }
 
-    // Initial data load
+    // initial data load
     useEffect(() => {
-        refreshAndHydrateData()
+        // add small delay to ensure component is fully mounted
+        const timer = setTimeout(() => {
+            refreshAndHydrateData().catch(error => {
+                console.error(
+                    '[Initial Load] Error during initial data load:',
+                    error,
+                )
+            })
+        }, 100)
+
+        return () => clearTimeout(timer)
     }, [])
 
     // Hydrate from RDS when we have user and process info
@@ -242,17 +257,32 @@ const Home: FC = () => {
     }, [location, userId, processStepId])
 
     const retrieveProjectInfo = async (): Promise<void> => {
-        // Dynamically import the function when needed
-        const { retrieveProjectDocs } = await import(
-            '../utilities/database_utils'
-        )
+        try {
+            // ensure db is ready
+            if (!db) {
+                console.log(
+                    '[retrieveProjectInfo] Database not ready, skipping',
+                )
+                return
+            }
 
-        retrieveProjectDocs(db).then(res => {
+            const { retrieveProjectDocs } = await import(
+                '../utilities/database_utils'
+            )
+
+            const res = await retrieveProjectDocs(db)
             console.log('[retrieveProjectInfo] Loaded from PouchDB:', res)
 
             setProjectList(res)
             sortByEditTime(res)
-        })
+        } catch (error) {
+            console.error(
+                '[retrieveProjectInfo] Error retrieving projects:',
+                error,
+            )
+            // set empty project list on error
+            setProjectList([])
+        }
     }
 
     const hydrateFromRDS = async () => {
