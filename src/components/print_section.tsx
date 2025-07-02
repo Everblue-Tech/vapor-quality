@@ -138,10 +138,6 @@ const PrintSection: FC<PrintSectionProps> = ({
                 type: 'application/pdf',
             })
 
-            console.log('BLOB TYPE', pdfBlob.type)
-
-            console.log('APPLICATION_ID', applicationId)
-
             // create document ID in vapor-core, upload to S3
             vaporCoreDocumentId = await uploadImageToS3AndCreateDocument({
                 file: pdfBlob,
