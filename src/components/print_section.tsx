@@ -44,6 +44,7 @@ const PrintSection: FC<PrintSectionProps> = ({
     const processId = localStorage.getItem('process_id')
     const processStepId = localStorage.getItem('process_step_id')
     const organizationId = localStorage.getItem('organization_id')
+    const applicationId = localStorage.getItem('application_id')
     const documentType = 'Quality Install Document'
 
     const printContainerId = useId()
@@ -135,6 +136,9 @@ const PrintSection: FC<PrintSectionProps> = ({
                 pagebreak: { mode: ['avoid-all', 'css'] },
             }
 
+//             const pdfBlob = new Blob([doc.output('arraybuffer')], {
+//                 type: 'application/pdf',
+//             })
             const pdfBlob = await html2pdf()
                 .set(opt)
                 .from(wrapper)
@@ -144,6 +148,7 @@ const PrintSection: FC<PrintSectionProps> = ({
             vaporCoreDocumentId = await uploadImageToS3AndCreateDocument({
                 file: pdfBlob,
                 userId,
+                applicationId,
                 organizationId,
                 documentType,
                 measureName,
@@ -161,6 +166,19 @@ const PrintSection: FC<PrintSectionProps> = ({
                 finalReportDocumentId: vaporCoreDocumentId,
                 jobId: jobId,
             })
+
+            // send postMessage request back up to vapor-flow
+            // used to render finalized report data in the UI
+            const reportData = {
+                type: 'FINAL_REPORT_SUBMITTED',
+                payload: {
+                    applicationId: applicationId,
+                    measureName: measureName,
+                    finalReportDocumentId: vaporCoreDocumentId,
+                },
+            }
+
+            window.parent.postMessage(reportData, '*')
 
             // update process step to CLOSED if all measures complete
             await closeProcessStepIfAllMeasuresComplete(

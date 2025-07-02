@@ -121,39 +121,36 @@ const templatesConfig: TemplatesConfig = {
 
 // Measure Type to Template Mapping
 export const measureTypeMapping: Record<string, string[]> = {
-    'air sealing': ['Attic Air Sealing and Insulation'],
-    'appliance upgrade': [
-        'High Efficiency Water Heater',
-        'High Efficiency Gas Furnace',
-    ],
-    'ceiling insulation': ['Attic Air Sealing and Insulation'],
-    'cooling equipment': ['Heat Pump Ducted', 'Heat Pump Ductless'],
-    'duct insulation': ['Duct Air Sealing and Insulation'],
-    'duct sealing': ['Duct Air Sealing and Insulation'],
-    'floor insulation': [
+    air_sealing: ['Attic Air Sealing and Insulation'],
+    appliance: ['High Efficiency Water Heater', 'High Efficiency Gas Furnace'],
+    ceiling_insulation: ['Attic Air Sealing and Insulation'],
+    cooling_equipment: ['Heat Pump Ducted', 'Heat Pump Ductless'],
+    duct_insulation: ['Duct Air Sealing and Insulation'],
+    duct_sealing: ['Duct Air Sealing and Insulation'],
+    floor_insulation: [
         'Floor Air Sealing and Insulation Above Unconditioned Space',
     ],
-    'foundation insulation': ['Foundation Wall Air Sealing and Insulation'],
-    'heating equipment': [
+    foundation_insulation: ['Foundation Wall Air Sealing and Insulation'],
+    heating_equipment: [
         'Heat Pump Ducted',
         'Heat Pump Ductless',
         'High Efficiency Gas Furnace',
     ],
     ventilation: ['Mechanical Ventilation'],
-    'wall insulation': ['Wall Air Sealing and Insulation (Drill and Fill)'],
-    'water heater': ['Heat Pump Water Heater', 'High Efficiency Water Heater'],
-    'window attachment': ['Insert Replacement Windows'],
-    'window replacement': ['Full Frame Replacement Windows'],
-    'electrical panel': ['Electric Load Service Center'],
-    'electric cooking appliance': ['Electric Cooking Appliances'],
-    'electric wiring': ['Electric Wiring'],
-    'heat pump clothes dryer': ['Heat Pump Clothes Dryer'],
-    'heat pump for space heating/cooling': [
+    wall_insulation: ['Wall Air Sealing and Insulation (Drill and Fill)'],
+    water_heater: ['Heat Pump Water Heater', 'High Efficiency Water Heater'],
+    window_attachment: ['Insert Replacement Windows'],
+    window_replacement: ['Full Frame Replacement Windows'],
+    electrical_panel: ['Electric Load Service Center'],
+    electric_cooking_appliance: ['Electric Cooking Appliances'],
+    electric_wiring: ['Electric Wiring'],
+    heat_pump_clothes_dryer: ['Heat Pump Clothes Dryer'],
+    heat_pump_for_space_heating_or_cooling: [
         'Heat Pump Ducted',
         'Heat Pump Ductless',
     ],
-    'heat pump water heater': ['Heat Pump Water Heater'],
-    'insulation, air sealing, and ventilation': [
+    heat_pump_water_heater: ['Heat Pump Water Heater'],
+    insulation_air_sealing_ventilation: [
         'Attic Air Sealing and Insulation',
         'Wall Air Sealing and Insulation (Drill and Fill)',
         'Floor Air Sealing and Insulation Above Unconditioned Space',

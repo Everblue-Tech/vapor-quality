@@ -44,12 +44,14 @@ export async function uploadImageToS3AndCreateDocument({
     file,
     userId,
     organizationId,
+    applicationId,
     documentType,
     measureName,
 }: {
     file: File | Blob
     userId: string | null
     organizationId: string | null
+    applicationId: string | null
     documentType: string
     measureName: string
 }) {
@@ -74,26 +76,18 @@ export async function uploadImageToS3AndCreateDocument({
         },
     })
 
-    const sanitizedFileName =
-        file instanceof File
-            ? file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-            : `upload_${Date.now()}`
-
     // normalize & convert measure name to kebab-case
     const sanitizedMeasureName = measureName.toLowerCase().replace(/\s+/g, '-')
 
-    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${Date.now()}_${sanitizedFileName}`
+    const fileName = `${Date.now()}_${applicationId}_${sanitizedMeasureName}`
+
+    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${fileName}.pdf`
 
     const putObjectCommand = new PutObjectCommand({
         Bucket: REACT_APP_AWS_S3_BUCKET,
         Key: s3Key,
         Body: new Uint8Array(await file.arrayBuffer()),
-        ContentType:
-            file instanceof File && file.type
-                ? file.type
-                : file instanceof Blob && file.type
-                  ? file.type
-                  : 'application/octet-stream',
+        ContentType: 'application/pdf',
         ServerSideEncryption: 'aws:kms',
         SSEKMSKeyId: REACT_APP_AWS_S3_KMS_KEY_ID,
     })
@@ -115,8 +109,10 @@ export async function uploadImageToS3AndCreateDocument({
                 document_type_id: documentTypeId,
                 file_path: s3Path,
                 organization_id: organizationId,
+                application: {}, // application object needed for document API call to succeed
+                application_id: applicationId,
                 expiration_date: null,
-                comments: `Uploaded photo from QIT: ${sanitizedFileName}`,
+                comments: `Uploaded photo from QIT: ${fileName}`,
             }),
         },
     )
