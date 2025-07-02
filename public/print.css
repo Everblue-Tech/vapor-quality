@@ -411,12 +411,14 @@ btn-light:hover {
 
 .photo-report-container {
   width: auto;           /* Allow width to adjust based on content */
-  max-width: 500px;      /* Maximum width */
+  max-width: 200px;      /* Maximum width */
   overflow: hidden;      /* Hide overflow */
   height: auto;          /* Allow height to adjust based on content */
-  max-height: 600px;     /* Maximum height */
+  max-height: 300px;     /* Maximum height */
   position: relative;    /* Relative positioning for overlay elements */
   display: inline-block; /* Display inline-block to shrink to content size */
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 /* used in photo-input component */
@@ -489,3 +491,64 @@ visibility: hidden;}
   }
 
 }
+
+/* Avoid Page Breaks for jsPDF */
+.pdf-wrapper {
+  page-break-after: always;
+}
+
+.pdf-page {
+  width: 380pt;
+  height: 625pt;
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+  page-break-after: always;
+  box-sizing: border-box;
+}
+
+.pdf-page-content {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 30pt 40pt;
+  overflow: hidden;
+}
+
+.pdf-page-content img {
+  max-height: 200pt; /* ~2.75 in */
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  margin-bottom: 10pt;
+}
+
+.pdf-page:last-of-type {
+  page-break-after: auto;
+}
+
+.pdf-page * {
+  margin-top: 0;
+  margin-bottom: 0;
+  line-height: 1.3;
+}
+
+.pdf-page h1,
+.pdf-page h2,
+.pdf-page p {
+  margin-bottom: 12pt;
+}
+
+.pdf-page {
+  border: 1px dashed red;
+}
+
+.pdf-page-content {
+    border: 1px dashed green;
+
+}
+
+
+
+
