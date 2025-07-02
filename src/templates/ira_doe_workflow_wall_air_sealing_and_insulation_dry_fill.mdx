@@ -209,6 +209,8 @@
  
  <Tab eventKey="report"  title="Report">
     <PrintSection label="Print Report">
+    <div className="pdf-wrapper">
+
     ---
     # Wall Air Sealing and Insulation (Drill and Fill) Upgrade
     ## Photo Report
@@ -239,6 +241,7 @@
     <p> What is the existing insulation in the wall?  <strong> { props.data?.existing_insulation_type} </strong> </p>
 
     <p> What is the existing insulation R-value in the wall?  <strong> { props.data?.existing_r_value} </strong> </p>
+
 
     ## General Safety
 
@@ -309,6 +312,7 @@
 </>
 )}
 
+    </div>
     </PrintSection>
 
   </Tab>

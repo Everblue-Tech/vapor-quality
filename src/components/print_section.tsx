@@ -1,7 +1,8 @@
 import { useId, useState, FC, ReactNode, useEffect } from 'react'
 import print from 'print-js'
 import Button from 'react-bootstrap/Button'
-import jsPDF from 'jspdf'
+// eslint-disable-next-line
+import html2pdf from 'html2pdf.js'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 import { useDB } from '../utilities/database_utils'
 import {
@@ -114,29 +115,34 @@ const PrintSection: FC<PrintSectionProps> = ({
 
         try {
             // generate PDF from final report data
-            const doc = new jsPDF({
-                orientation: 'portrait',
-                unit: 'pt',
-                format: 'a4',
-            })
+            const container = document.getElementById(printContainerId)
+            if (!container) {
+                alert('Error: Print container not found.')
+                return
+            }
 
-            await new Promise<void>((resolve, reject) => {
-                doc.html(container, {
-                    x: 10,
-                    y: 10,
-                    autoPaging: 'text',
-                    html2canvas: {
-                        scale: 1,
-                        allowTaint: true,
-                        useCORS: true,
-                    },
-                    callback: () => resolve(),
-                })
-            })
+            const wrapper = container.querySelector('.pdf-wrapper')
+            if (!wrapper) {
+                alert('Error: .pdf-wrapper not found inside container.')
+                return
+            }
 
-            const pdfBlob = new Blob([doc.output('arraybuffer')], {
-                type: 'application/pdf',
-            })
+            const opt = {
+                margin: 7,
+                filename: 'report.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 1, useCORS: true, logging: true },
+                jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all', 'css'] },
+            }
+
+//             const pdfBlob = new Blob([doc.output('arraybuffer')], {
+//                 type: 'application/pdf',
+//             })
+            const pdfBlob = await html2pdf()
+                .set(opt)
+                .from(wrapper)
+                .output('blob')
 
             // create document ID in vapor-core, upload to S3
             vaporCoreDocumentId = await uploadImageToS3AndCreateDocument({
@@ -151,7 +157,6 @@ const PrintSection: FC<PrintSectionProps> = ({
             if (!vaporCoreDocumentId) {
                 throw new Error('Upload to S3 failed')
             }
-
             // update process step with measure info
             await updateProcessStepWithMeasure({
                 userId: userId,
@@ -248,7 +253,7 @@ const PrintSection: FC<PrintSectionProps> = ({
             )}
 
             <div id={printContainerId}>
-                <div className="print-wrapper">{children}</div>
+                <div className="avoid-page-breaks">{children}</div>
             </div>
         </>
     )
