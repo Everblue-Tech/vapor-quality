@@ -1032,8 +1032,8 @@ const Home: FC = () => {
                 </div>
             ) : (
                 <div>
-                    {/* Show prefill data indicator */}
-                    {hasPrefillData && (
+                    {/* Show prefill data indicator - FOR DEBUG ONLY */}
+                    {/* {hasPrefillData && (
                         <div className="alert alert-info mb-3">
                             <strong>
                                 Form data received from parent application
@@ -1048,7 +1048,7 @@ const Home: FC = () => {
                                 </pre>
                             </details>
                         </div>
-                    )}
+                    )} */}
                     {Object.keys(projectList).length == 0 && (
                         <center>
                             <br />
