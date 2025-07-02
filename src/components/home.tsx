@@ -159,9 +159,9 @@ const Home: FC = () => {
     }, [])
 
     const refreshAndHydrateData = async () => {
-        if (!userId || !processStepId) {
+        if (!applicationId || !processStepId || !userId) {
             console.log(
-                '[Refresh] Missing user or process info, skipping refresh',
+                '[Refresh] Missing application, user, or process info, skipping refresh',
             )
             return
         }
@@ -175,21 +175,34 @@ const Home: FC = () => {
         setIsHydrating(true)
 
         try {
-            // Get all current docs
-            const allDocs = await db.allDocs()
+            // get all current docs
+            let allDocs
+            try {
+                allDocs = await db.allDocs()
+            } catch (docError) {
+                console.warn(
+                    '[Refresh] Could not retrieve docs for cleanup:',
+                    docError,
+                )
+                allDocs = { rows: [] }
+            }
 
-            // Delete all existing docs
-            const docsToDelete = allDocs.rows.map(
-                (row: { id: string; value: { rev: string } }) => ({
-                    _id: row.id,
-                    _rev: row.value.rev,
-                    _deleted: true,
-                }),
-            )
+            // delete all existing docs
+            if (allDocs.rows.length > 0) {
+                const docsToDelete = allDocs.rows.map(
+                    (row: { id: string; value: { rev: string } }) => ({
+                        _id: row.id,
+                        _rev: row.value.rev,
+                        _deleted: true,
+                    }),
+                )
 
-            if (docsToDelete.length > 0) {
-                console.log('[Refresh] Clearing existing documents...')
-                await db.bulkDocs(docsToDelete)
+                try {
+                    console.log('[Refresh] Clearing existing documents...')
+                    await db.bulkDocs(docsToDelete)
+                } catch (deleteError) {
+                    console.warn('[Refresh] Error clearing docs:', deleteError)
+                }
             }
 
             // Reset hydration flag
@@ -205,56 +218,113 @@ const Home: FC = () => {
             console.log('[Refresh] Full refresh complete')
         } catch (error) {
             console.error('[Refresh] Error during refresh:', error)
+            // try to load local projects
+            try {
+                await retrieveProjectInfo()
+            } catch (fallbackError) {
+                console.error(
+                    '[Refresh] Fallback project loading failed:',
+                    fallbackError,
+                )
+            }
         } finally {
             setIsHydrating(false)
         }
     }
 
-    // initial data load
+    // initial data load - wait for database to be ready
     useEffect(() => {
-        // add small delay to ensure component is fully mounted
-        const timer = setTimeout(() => {
-            refreshAndHydrateData().catch(error => {
-                console.error(
-                    '[Initial Load] Error during initial data load:',
-                    error,
-                )
-            })
-        }, 100)
+        if (db) {
+            if (applicationId && processStepId && userId) {
+                // Full refresh with RDS hydration
+                const timer = setTimeout(() => {
+                    refreshAndHydrateData().catch(error => {
+                        console.error(
+                            '[Initial Load] Error during initial data load:',
+                            error,
+                        )
+                    })
+                }, 500)
+                return () => clearTimeout(timer)
+            } else {
+                // just load local projects if no application/process data
+                const timer = setTimeout(() => {
+                    retrieveProjectInfo().catch(error => {
+                        console.error(
+                            '[Initial Load] Error loading local projects:',
+                            error,
+                        )
+                    })
+                }, 300)
+                return () => clearTimeout(timer)
+            }
+        }
+    }, [db, applicationId, processStepId, userId])
 
-        return () => clearTimeout(timer)
-    }, [])
-
-    // Hydrate from RDS when we have user and process info
+    // Hydrate from RDS when we have application and process info
     useEffect(() => {
-        if (userId && processStepId && !hasHydratedRef.current) {
+        if (
+            applicationId &&
+            processStepId &&
+            userId &&
+            !hasHydratedRef.current
+        ) {
             hydrateFromRDS().then(() => {
                 hasHydratedRef.current = true
             })
         }
-    }, [userId, processStepId])
+    }, [applicationId, processStepId, userId])
 
     // Clean up empty projects on mount
     useEffect(() => {
-        deleteEmptyProjects(db)
-    }, [])
+        // add safety check and delay to prevent PouchDB errors
+        if (db) {
+            setTimeout(() => {
+                deleteEmptyProjects(db).catch(error => {
+                    console.warn('Error cleaning empty projects:', error)
+                })
+            }, 1000)
+        }
+    }, [db])
 
     // Refresh when navigating back to projects list
+    // DISABLED: This was causing PouchDB errors when navigating back from canceled projects
+    /*
     useEffect(() => {
         // Check if we're at the root path (projects list)
         if (location.pathname === '/' || location.pathname === '') {
             console.log(
                 '[Navigation] Returned to projects list, refreshing data',
             )
-            // If we have user and process info, do a full refresh
-            if (userId && processStepId) {
-                refreshAndHydrateData()
-            } else {
-                // Otherwise just refresh the local data
-                retrieveProjectInfo()
+            // Add safety checks and error handling
+            if (db) {
+                if (userId && processStepId) {
+                    refreshAndHydrateData().catch(error => {
+                        console.error(
+                            '[Navigation] Error during refresh:',
+                            error,
+                        )
+                        // Fallback to local data on error
+                        retrieveProjectInfo().catch(fallbackError => {
+                            console.error(
+                                '[Navigation] Fallback also failed:',
+                                fallbackError,
+                            )
+                        })
+                    })
+                } else {
+                    // Just refresh local data
+                    retrieveProjectInfo().catch(error => {
+                        console.error(
+                            '[Navigation] Error refreshing local data:',
+                            error,
+                        )
+                    })
+                }
             }
         }
-    }, [location, userId, processStepId])
+    }, [location, userId, processStepId, db])
+    */
 
     const retrieveProjectInfo = async (): Promise<void> => {
         try {
@@ -286,9 +356,9 @@ const Home: FC = () => {
     }
 
     const hydrateFromRDS = async () => {
-        if (!userId || !processStepId) {
+        if (!applicationId || !processStepId) {
             console.log('[hydrateFromRDS] Missing required params:', {
-                userId,
+                applicationId,
                 processStepId,
             })
             return
@@ -298,26 +368,112 @@ const Home: FC = () => {
         console.log('[hydrateFromRDS] Starting hydration...')
 
         try {
-            const response = await fetch(
+            // check to see if a project already exists for this process_step_id
+            const existingResponse = await fetch(
                 `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
             )
 
-            if (!response.ok) {
-                const err = await response.json()
-                console.warn('[hydrateFromRDS] No saved form data:', err)
+            let shouldCreateFromApplication = false
+            let existingData = null
+
+            if (existingResponse.ok) {
+                const existingResult = await existingResponse.json()
+                existingData = existingResult.forms
+                console.log(
+                    '[hydrateFromRDS] Found existing data for process_step_id:',
+                    existingData,
+                )
+            } else {
+                console.log(
+                    '[hydrateFromRDS] No existing data for process_step_id, will create from application data',
+                )
+                shouldCreateFromApplication = true
+            }
+
+            // if no existing data for this process_step_id, get application data
+            if (shouldCreateFromApplication) {
+                console.log(
+                    '[hydrateFromRDS] Fetching application data for application_id:',
+                    applicationId,
+                )
+                const appResponse = await fetch(
+                    `${REACT_APP_VAPORCORE_URL}/api/quality-install/application/${applicationId}`,
+                )
+
+                if (!appResponse.ok) {
+                    console.warn('[hydrateFromRDS] No application data found')
+                    return
+                }
+
+                const appResult = await appResponse.json()
+
+                const appForms = appResult.forms
+
+                if (!appForms || appForms.length === 0) {
+                    console.warn(
+                        '[hydrateFromRDS] No forms found for application',
+                    )
+                    return
+                }
+
+                // get the most recent form
+                const mostRecentForm = appForms[appForms.length - 1]
+                console.log(
+                    '[hydrateFromRDS] Using most recent form:',
+                    mostRecentForm,
+                )
+
+                // create a new entry for this process_step_id based on the most recent application data
+                const newFormData = {
+                    ...mostRecentForm.form_data,
+                    // Update metadata to reflect new process_step_id
+                    metadata_: {
+                        ...mostRecentForm.form_data.metadata_,
+                        process_step_id: processStepId,
+                        created_from_application: true,
+                        source_form_id: mostRecentForm.id,
+                        created_at: new Date().toISOString(),
+                    },
+                }
+
+                // create new project entry in the DB in quality_install_form_data
+                const createResponse = await fetch(
+                    `${REACT_APP_VAPORCORE_URL}/api/quality-install`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            application_id: applicationId,
+                            process_step_id: processStepId,
+                            form_data: newFormData,
+                        }),
+                    },
+                )
+
+                if (createResponse.ok) {
+                    const createdResult = await createResponse.json()
+                    existingData = [createdResult]
+                } else {
+                    console.error('[hydrateFromRDS] Failed to create new entry')
+                    return
+                }
+            }
+
+            // process data (newly created or existing entry)
+            if (!existingData || existingData.length === 0) {
+                console.warn('[hydrateFromRDS] No data to process')
                 return
             }
 
-            const result = await response.json()
-            const rdsProjects = result.forms
-            console.log('[hydrateFromRDS] Retrieved from RDS:', rdsProjects)
+            const rdsProjects = existingData
 
             for (const entry of rdsProjects) {
-                console.log('[hydrateFromRDS] Processing entry:', entry.id)
-
                 const exists = await db.get(entry.id).catch(() => null)
 
-                // 🔍 GET THE ATTACHMENTS METADATA FROM RDS DATA
+                // GET THE ATTACHMENTS METADATA FROM RDS DATA
                 const formData = entry.form_data
                 const attachmentsFromRDS =
                     formData?.metadata_?.attachments || {}
@@ -386,7 +542,7 @@ const Home: FC = () => {
                     )
                 }
 
-                // 🔧 HYDRATE ATTACHMENTS (whether doc is new or existing)
+                // HYDRATE ATTACHMENTS (whether doc is new or existing)
                 if (Object.keys(attachmentsFromRDS).length > 0) {
                     console.log('[hydrateFromRDS] Processing attachments...')
 
@@ -787,7 +943,7 @@ const Home: FC = () => {
     const projects_display =
         Object.keys(projectList).length === 0
             ? []
-            : projectList.map((key, value) => (
+            : projectList.map(key => (
                   <div key={key._id}>
                       <ListGroup key={key._id} className="padding">
                           <LinkContainer
