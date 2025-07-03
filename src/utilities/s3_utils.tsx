@@ -6,7 +6,6 @@ import {
 import { getConfig } from '../config'
 import { getMetadataFromPhoto } from './photo_utils'
 
-const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
 const REACT_APP_AWS_S3_BUCKET_USER_KEY = getConfig(
     'REACT_APP_AWS_S3_BUCKET_USER_KEY',
 )
@@ -20,7 +19,7 @@ const REACT_APP_AWS_S3_KMS_KEY_ID = getConfig('REACT_APP_AWS_S3_KMS_KEY_ID')
 export async function fetchDocumentTypes(documentType: string) {
     try {
         const response = await fetch(
-            `${REACT_APP_VAPORCORE_URL}/api/documents/types`,
+            `/api/documents/types`,
         )
         if (!response.ok) {
             throw new Error('Failed to fetch document types.')
@@ -104,7 +103,7 @@ export async function uploadImageToS3AndCreateDocument({
 
     // create a document in vapor-core
     const documentResponse = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/documents/create`,
+        `/api/documents/create`,
         {
             method: 'POST',
             headers: {
@@ -259,7 +258,7 @@ export const parseS3Path = (s3Path: string, bucketName?: string) => {
 
 export async function fetchDocumentById(documentId: string) {
     const response = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
+        `/api/documents/${documentId}`,
     )
 
     if (!response.ok) {
@@ -391,7 +390,7 @@ export async function hydratePhotoFromDocumentId({
 
 export async function deleteDocumentById(documentId: string) {
     const response = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
+        `/api/documents/${documentId}`,
         {
             method: 'DELETE',
         },

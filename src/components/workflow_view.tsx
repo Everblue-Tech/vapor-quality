@@ -30,7 +30,6 @@ const WorkFlowView: FC = () => {
 
     const [allowedTemplates, setAllowedTemplates] = useState<string[]>([])
 
-    const VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
 
     // Load allowed templates based on mapped measure types from vapor-flow, filter out completed measures
     useEffect(() => {
@@ -53,7 +52,7 @@ const WorkFlowView: FC = () => {
                 }
 
                 const res = await fetch(
-                    `${VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+                    `/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
                     { method: 'GET' },
                 )
                 const json = await res.json()

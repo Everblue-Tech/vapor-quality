@@ -77,7 +77,6 @@ interface StoreProviderProps {
     parentId?: string | undefined
 }
 
-const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
 
 /**
  * A wrapper component that connects its children to a data store via React Context
@@ -685,7 +684,7 @@ export const updateProcessStepWithMeasure = async ({
     jobId?: string
 }) => {
     const response = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data`,
+        `/api/process/${processId}/step/${processStepId}/form-data`,
         {
             method: 'PATCH',
             headers: {
@@ -730,7 +729,7 @@ export const closeProcessStepIfAllMeasuresComplete = async (
 
     try {
         const formDataRes = await fetch(
-            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+            `/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
             {
                 method: 'GET',
             },
@@ -765,7 +764,7 @@ export const closeProcessStepIfAllMeasuresComplete = async (
         }
 
         const closeRes = await fetch(
-            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/condition`,
+            `/api/process/${processId}/step/${processStepId}/condition`,
             {
                 method: 'PUT',
                 headers: {
@@ -799,7 +798,7 @@ export async function saveProjectToRDS({
     docId: string
 }) {
     const response = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/quality-install`,
+        `/api/quality-install`,
         {
             method: 'POST',
             headers: {
@@ -827,7 +826,7 @@ export async function getProjectsFromRDS(
     processStepId: string,
 ) {
     const response = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+        `/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
     )
 
     if (!response.ok) {
@@ -842,10 +841,9 @@ export async function getProjectsFromRDS(
 export async function fetchDocumentMetadata(
     documentId: string,
 ): Promise<string | null> {
-    const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
-
+    
     const response = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
+        `/api/documents/${documentId}`,
     )
     if (!response.ok) {
         console.warn(`[fetchDocumentMetadata] Failed for ${documentId}`)
