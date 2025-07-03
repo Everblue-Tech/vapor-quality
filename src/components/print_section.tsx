@@ -136,9 +136,9 @@ const PrintSection: FC<PrintSectionProps> = ({
                 pagebreak: { mode: ['avoid-all', 'css'] },
             }
 
-//             const pdfBlob = new Blob([doc.output('arraybuffer')], {
-//                 type: 'application/pdf',
-//             })
+            //             const pdfBlob = new Blob([doc.output('arraybuffer')], {
+            //                 type: 'application/pdf',
+            //             })
             const pdfBlob = await html2pdf()
                 .set(opt)
                 .from(wrapper)
