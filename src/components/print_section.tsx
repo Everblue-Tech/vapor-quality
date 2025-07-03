@@ -49,7 +49,6 @@ const PrintSection: FC<PrintSectionProps> = ({
     const isSafari = () =>
         /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
 
-
     const addSafariHeader = () => {
         if (isSafari()) {
             const printWrapper = document.getElementById(printContainerId)

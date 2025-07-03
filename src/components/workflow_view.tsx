@@ -30,7 +30,6 @@ const WorkFlowView: FC = () => {
 
     const [allowedTemplates, setAllowedTemplates] = useState<string[]>([])
 
-
     // Load allowed templates based on mapped measure types from vapor-flow, filter out completed measures
     useEffect(() => {
         const checkCompletedMeasuresAndFilter = async () => {

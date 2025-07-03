@@ -77,7 +77,6 @@ interface StoreProviderProps {
     parentId?: string | undefined
 }
 
-
 /**
  * A wrapper component that connects its children to a data store via React Context
  *
@@ -797,21 +796,18 @@ export async function saveProjectToRDS({
     formData: any
     docId: string
 }) {
-    const response = await fetch(
-        `/api/quality-install`,
-        {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                user_id: userId,
-                process_step_id: processStepId,
-                id: docId,
-                form_data: formData,
-            }),
+    const response = await fetch(`/api/quality-install`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
         },
-    )
+        body: JSON.stringify({
+            user_id: userId,
+            process_step_id: processStepId,
+            id: docId,
+            form_data: formData,
+        }),
+    })
 
     if (!response.ok) {
         const error = await response.json()
@@ -841,10 +837,7 @@ export async function getProjectsFromRDS(
 export async function fetchDocumentMetadata(
     documentId: string,
 ): Promise<string | null> {
-    
-    const response = await fetch(
-        `/api/documents/${documentId}`,
-    )
+    const response = await fetch(`/api/documents/${documentId}`)
     if (!response.ok) {
         console.warn(`[fetchDocumentMetadata] Failed for ${documentId}`)
         return null
