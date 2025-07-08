@@ -30,7 +30,6 @@ app.get('/config', async (req, res) => {
             const response = await client.send(command)
             secrets = JSON.parse(response.SecretString)
             res.json({
-                REACT_APP_VAPORCORE_URL: secrets.REACT_APP_VAPORCORE_URL,
                 REACT_APP_AWS_S3_BUCKET: secrets.REACT_APP_AWS_S3_BUCKET,
                 REACT_APP_AWS_S3_BUCKET_USER_KEY:
                     secrets.REACT_APP_AWS_S3_BUCKET_USER_KEY,
@@ -45,7 +44,6 @@ app.get('/config', async (req, res) => {
         } else {
             // use env vars for local dev
             res.json({
-                REACT_APP_VAPORCORE_URL: process.env.REACT_APP_VAPORCORE_URL,
                 REACT_APP_AWS_S3_BUCKET: process.env.REACT_APP_AWS_S3_BUCKET,
                 REACT_APP_AWS_S3_BUCKET_USER_KEY:
                     process.env.REACT_APP_AWS_S3_BUCKET_USER_KEY,
