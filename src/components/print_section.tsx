@@ -49,8 +49,6 @@ const PrintSection: FC<PrintSectionProps> = ({
     const isSafari = () =>
         /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
 
-    const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
-
     const addSafariHeader = () => {
         if (isSafari()) {
             const printWrapper = document.getElementById(printContainerId)
@@ -70,7 +68,7 @@ const PrintSection: FC<PrintSectionProps> = ({
 
             try {
                 const res = await fetch(
-                    `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+                    `/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
                     {
                         method: 'GET',
                     },

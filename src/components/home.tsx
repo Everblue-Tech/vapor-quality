@@ -43,7 +43,6 @@ const Home: FC = () => {
 
     const db = useDB()
 
-    const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
     const REACT_APP_VAPORFLOW_URL = getConfig('REACT_APP_VAPORFLOW_URL')
 
     const { upsertAttachment } = useContext(StoreContext)
@@ -207,7 +206,7 @@ const Home: FC = () => {
 
         try {
             const response = await fetch(
-                `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+                `/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
             )
 
             if (!response.ok) {

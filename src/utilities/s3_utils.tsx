@@ -6,7 +6,6 @@ import {
 import { getConfig } from '../config'
 import { getMetadataFromPhoto } from './photo_utils'
 
-const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
 const REACT_APP_AWS_S3_BUCKET_USER_KEY = getConfig(
     'REACT_APP_AWS_S3_BUCKET_USER_KEY',
 )
@@ -19,9 +18,7 @@ const REACT_APP_AWS_S3_KMS_KEY_ID = getConfig('REACT_APP_AWS_S3_KMS_KEY_ID')
 
 export async function fetchDocumentTypes(documentType: string) {
     try {
-        const response = await fetch(
-            `${REACT_APP_VAPORCORE_URL}/api/documents/types`,
-        )
+        const response = await fetch(`/api/documents/types`)
         if (!response.ok) {
             throw new Error('Failed to fetch document types.')
         }
@@ -103,23 +100,20 @@ export async function uploadImageToS3AndCreateDocument({
     const s3Path = `s3://${REACT_APP_AWS_S3_BUCKET}/${s3Key}`
 
     // create a document in vapor-core
-    const documentResponse = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/documents/create`,
-        {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                user_id: userId,
-                document_type_id: documentTypeId,
-                file_path: s3Path,
-                organization_id: organizationId,
-                expiration_date: null,
-                comments: `Uploaded photo from QIT: ${sanitizedFileName}`,
-            }),
+    const documentResponse = await fetch(`/api/documents/create`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
         },
-    )
+        body: JSON.stringify({
+            user_id: userId,
+            document_type_id: documentTypeId,
+            file_path: s3Path,
+            organization_id: organizationId,
+            expiration_date: null,
+            comments: `Uploaded photo from QIT: ${sanitizedFileName}`,
+        }),
+    })
 
     if (!documentResponse.ok) {
         throw new Error('Failed to create document in vapor-core')
@@ -258,9 +252,7 @@ export const parseS3Path = (s3Path: string, bucketName?: string) => {
 }
 
 export async function fetchDocumentById(documentId: string) {
-    const response = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
-    )
+    const response = await fetch(`/api/documents/${documentId}`)
 
     if (!response.ok) {
         throw new Error('Failed to fetch document metadata')
@@ -390,12 +382,9 @@ export async function hydratePhotoFromDocumentId({
 }
 
 export async function deleteDocumentById(documentId: string) {
-    const response = await fetch(
-        `${REACT_APP_VAPORCORE_URL}/api/documents/${documentId}`,
-        {
-            method: 'DELETE',
-        },
-    )
+    const response = await fetch(`/api/documents/${documentId}`, {
+        method: 'DELETE',
+    })
 
     if (!response.ok) {
         throw new Error(`Failed to delete document ${documentId}`)
