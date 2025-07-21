@@ -52,6 +52,7 @@
     "heic-jpg-exif": "^1.0.0",
     "heic2any": "^0.0.4",
     "html-webpack-plugin": "^5.5.0",
+    "html2pdf.js": "^0.10.3",
     "identity-obj-proxy": "^3.0.0",
     "jest": "^27.4.3",
     "jest-resolve": "^27.4.2",

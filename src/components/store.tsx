@@ -792,11 +792,13 @@ export async function saveProjectToRDS({
     processStepId,
     formData,
     docId,
+    applicationId,
 }: {
     userId: string
     processStepId: string
     formData: any
     docId: string
+    applicationId: string
 }) {
     const response = await fetch(
         `${REACT_APP_VAPORCORE_URL}/api/quality-install`,
@@ -808,6 +810,7 @@ export async function saveProjectToRDS({
             body: JSON.stringify({
                 user_id: userId,
                 process_step_id: processStepId,
+                application_id: applicationId,
                 id: docId,
                 form_data: formData,
             }),
