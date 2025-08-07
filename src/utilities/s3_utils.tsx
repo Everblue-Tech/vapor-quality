@@ -79,9 +79,9 @@ export async function uploadImageToS3AndCreateDocument({
     // normalize & convert measure name to kebab-case
     const sanitizedMeasureName = measureName.toLowerCase().replace(/\s+/g, '-')
 
-    const fileName = `${Date.now()}_${applicationId}_${sanitizedMeasureName}`
+    const fileName = `${Date.now()}_${applicationId}`
 
-    const s3Key = `quality-install/documents/${sanitizedMeasureName}/${fileName}.pdf`
+    const s3Key = `quality-install/documents-by-application-id/${applicationId}/${sanitizedMeasureName}/${fileName}.pdf`
 
     const putObjectCommand = new PutObjectCommand({
         Bucket: REACT_APP_AWS_S3_BUCKET,

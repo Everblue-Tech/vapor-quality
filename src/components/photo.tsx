@@ -32,6 +32,10 @@ interface PhotoProps {
  * will always show and the Photo component will indicate when the photo is missing.
  */
 const Photo: FC<PhotoProps> = ({ description, label, photos, required }) => {
+    console.log(
+        `[Photo] Rendering photo component "${label}" with ${photos?.length || 0} photos:`,
+        photos,
+    )
     return (photos && photos.length > 0) || required ? (
         <Card className="photo-card">
             <Card.Body>
