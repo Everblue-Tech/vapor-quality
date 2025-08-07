@@ -81,13 +81,87 @@ export async function uploadImageToS3AndCreateDocument({
 
     const fileName = `${Date.now()}_${applicationId}`
 
-    const s3Key = `quality-install/documents-by-application-id/${applicationId}/${sanitizedMeasureName}/${fileName}.pdf`
+    // detect file type and set appropriate extension and content type
+    let fileExtension = 'pdf'
+    let contentType = 'application/pdf'
+
+    // check if it's an image based on blob type
+    if (file.type && file.type.startsWith('image/')) {
+        if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
+            fileExtension = 'jpg'
+            contentType = 'image/jpeg'
+        } else if (file.type === 'image/png') {
+            fileExtension = 'png'
+            contentType = 'image/png'
+        } else if (file.type === 'image/svg+xml') {
+            fileExtension = 'svg'
+            contentType = 'image/svg+xml'
+        } else {
+            // For other image types, default to jpg
+            fileExtension = 'jpg'
+            contentType = 'image/jpeg'
+        }
+    } else if (!file.type || file.type === 'application/octet-stream') {
+        // If MIME type is missing or generic, try to detect from blob content
+        try {
+            const arrayBuffer = await file.arrayBuffer()
+            const uint8Array = new Uint8Array(arrayBuffer)
+
+            // Check for JPEG signature (FF D8 FF)
+            if (
+                uint8Array.length >= 3 &&
+                uint8Array[0] === 0xff &&
+                uint8Array[1] === 0xd8 &&
+                uint8Array[2] === 0xff
+            ) {
+                fileExtension = 'jpg'
+                contentType = 'image/jpeg'
+            }
+            // Check for PNG signature (89 50 4E 47 0D 0A 1A 0A)
+            else if (
+                uint8Array.length >= 8 &&
+                uint8Array[0] === 0x89 &&
+                uint8Array[1] === 0x50 &&
+                uint8Array[2] === 0x4e &&
+                uint8Array[3] === 0x47 &&
+                uint8Array[4] === 0x0d &&
+                uint8Array[5] === 0x0a &&
+                uint8Array[6] === 0x1a &&
+                uint8Array[7] === 0x0a
+            ) {
+                fileExtension = 'png'
+                contentType = 'image/png'
+            }
+            // Check for PDF signature (25 50 44 46)
+            else if (
+                uint8Array.length >= 4 &&
+                uint8Array[0] === 0x25 &&
+                uint8Array[1] === 0x50 &&
+                uint8Array[2] === 0x44 &&
+                uint8Array[3] === 0x46
+            ) {
+                fileExtension = 'pdf'
+                contentType = 'application/pdf'
+            }
+            // Default to JPEG for unknown types (likely images)
+            else {
+                fileExtension = 'jpg'
+                contentType = 'image/jpeg'
+            }
+        } catch (error) {
+            // Default to JPEG for images
+            fileExtension = 'jpg'
+            contentType = 'image/jpeg'
+        }
+    }
+
+    const s3Key = `quality-install/documents-by-application-id/${applicationId}/${sanitizedMeasureName}/${fileName}.${fileExtension}`
 
     const putObjectCommand = new PutObjectCommand({
         Bucket: REACT_APP_AWS_S3_BUCKET,
         Key: s3Key,
         Body: new Uint8Array(await file.arrayBuffer()),
-        ContentType: 'application/pdf',
+        ContentType: contentType,
         ServerSideEncryption: 'aws:kms',
         SSEKMSKeyId: REACT_APP_AWS_S3_KMS_KEY_ID,
     })

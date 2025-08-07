@@ -48,7 +48,11 @@ const removeBlankPagesFromPDF = async (pdfBlob: Blob): Promise<Blob> => {
 
             if (isLikelyBlank) {
                 pagesToRemove.push(pages.length - 1)
-                console.log(`Removing likely blank last page`)
+                console.log(
+                    `Removing likely blank last page (page ${pages.length})`,
+                )
+            } else {
+                console.log(`Last page appears to have content, keeping it`)
             }
         }
 
@@ -82,24 +86,31 @@ const isPageLikelyBlank = async (
         // Get the page's content stream if available
         const operators = page.node?.operators || []
 
-        // If we have very few operators, the page is likely blank
-        if (operators.length < 5) {
+        // More conservative: require fewer operators to be considered non-blank
+        if (operators.length < 3) {
             return true
         }
 
-        // Check for common content indicators
-        const hasContent = operators.some((op: any) => {
+        // Count content operators more carefully
+        let contentCount = 0
+        operators.forEach((op: any) => {
             const operator = op.operator || op.fn || ''
-            return (
+            if (
                 operator.includes('Tj') || // Text
                 operator.includes('Do') || // Images/objects
                 operator.includes('re') || // Rectangles
                 operator.includes('l') || // Lines
-                operator.includes('c')
-            ) // Curves
+                operator.includes('c') || // Curves
+                operator.includes('m') || // Move to
+                operator.includes('f') || // Fill
+                operator.includes('S') // Stroke
+            ) {
+                contentCount++
+            }
         })
 
-        return !hasContent
+        // Page is blank if it has very little content
+        return contentCount < 2
     } catch (error) {
         console.warn('Error checking if page is likely blank:', error)
         // If we can't determine, assume it's not blank to be safe
@@ -123,6 +134,10 @@ const ensureAllImagesLoaded = async (container: HTMLElement): Promise<void> => {
         const promise = new Promise<void>(resolve => {
             img.onload = () => {
                 console.log('Image loaded successfully:', img.src)
+                // Force high-quality rendering after load
+                img.style.imageRendering = 'high-quality'
+                img.style.imageRendering = '-webkit-optimize-contrast'
+                img.style.imageRendering = 'crisp-edges'
                 resolve()
             }
             img.onerror = () => {
@@ -138,9 +153,12 @@ const ensureAllImagesLoaded = async (container: HTMLElement): Promise<void> => {
         // Wait for all images to load with a timeout
         await Promise.race([
             Promise.all(imagePromises),
-            new Promise(resolve => setTimeout(resolve, 5000)), // 5 second timeout
+            new Promise(resolve => setTimeout(resolve, 5000)), // Balanced timeout
         ])
         console.log('Image loading complete')
+
+        // Brief delay to ensure images are fully rendered
+        await new Promise(resolve => setTimeout(resolve, 500))
     } else {
         console.log('No images to load')
     }
@@ -175,120 +193,132 @@ const addStrategicPageBreaks = (container: HTMLElement): void => {
  * Pre-processes images in the PDF container to improve quality and fix metadata cutoff
  */
 const preprocessImagesForPDF = (container: HTMLElement) => {
+    // Enhanced preprocessing for better image quality
     const images = container.querySelectorAll('img')
     images.forEach(img => {
-        // Ensure images are loaded at maximum quality
+        // High-quality image rendering settings
         img.style.imageRendering = 'high-quality'
         img.style.imageRendering = '-webkit-optimize-contrast'
         img.style.imageRendering = 'crisp-edges'
+        img.style.objectFit = 'contain'
+        img.style.objectPosition = 'center'
 
-        // Remove any constraints that might limit quality
+        // Remove size constraints that might limit quality
         img.style.maxWidth = 'none'
         img.style.maxHeight = 'none'
         img.style.minWidth = 'none'
         img.style.minHeight = 'none'
 
-        // Set optimal dimensions for PDF while preserving quality
+        // Smart image sizing that preserves aspect ratio and fits within bounds
         if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-            const aspectRatio = img.naturalWidth / img.naturalHeight
-            const maxWidth = 500 // Increased maximum width in points for PDF
-            const maxHeight = 400 // Increased maximum height in points for PDF
+            // Convert natural dimensions to points (1px ≈ 0.75pt for typical screen density)
+            const scaleFactor = 0.75
+            let targetWidth = img.naturalWidth * scaleFactor
+            let targetHeight = img.naturalHeight * scaleFactor
 
-            if (aspectRatio > maxWidth / maxHeight) {
-                img.style.width = `${maxWidth}pt`
-                img.style.height = 'auto'
-            } else {
-                img.style.width = 'auto'
-                img.style.height = `${maxHeight}pt`
+            // A4 page dimensions in points (595 x 842)
+            const maxPageWidth = 500 // Leave some margin
+            const maxPageHeight = 700 // Leave some margin
+
+            // Check if image would overflow the page
+            if (targetWidth > maxPageWidth || targetHeight > maxPageHeight) {
+                // Scale down proportionally to fit within page bounds
+                const widthRatio = maxPageWidth / targetWidth
+                const heightRatio = maxPageHeight / targetHeight
+                const scaleRatio = Math.min(widthRatio, heightRatio)
+
+                targetWidth = targetWidth * scaleRatio
+                targetHeight = targetHeight * scaleRatio
             }
+
+            // Set dimensions to ensure full image display and visibility
+            img.style.width = `${targetWidth}pt`
+            img.style.height = `${targetHeight}pt`
+            img.style.maxWidth = 'none'
+            img.style.maxHeight = 'none'
+            img.style.minWidth = 'auto'
+            img.style.minHeight = 'auto'
+            img.style.objectFit = 'contain'
+            img.style.objectPosition = 'center'
+            img.style.visibility = 'visible'
+            img.style.display = 'block'
+            img.style.opacity = '1'
         }
 
-        // Ensure images are fully loaded before PDF generation
-        if (!img.complete) {
-            img.style.opacity = '0'
-            img.onload = () => {
-                img.style.opacity = '1'
-            }
-        }
+        // Ensure images don't break across pages and get proper spacing
+        img.style.pageBreakInside = 'avoid'
+        img.style.breakInside = 'avoid'
+        img.style.pageBreakBefore = 'auto'
+        img.style.breakBefore = 'auto'
+        img.style.marginTop = '10px'
+        img.style.marginBottom = '5px'
 
         // Force high-quality rendering
-        img.style.objectFit = 'contain'
-        img.style.objectPosition = 'center'
+        img.crossOrigin = 'anonymous'
     })
 
-    // Fix photo containers to prevent metadata cutoff
+    // Check photo containers and add page breaks if they're too large
+    const largePhotoContainers = container.querySelectorAll(
+        '.photo-report-container',
+    )
+    largePhotoContainers.forEach(container => {
+        const containerElement = container as HTMLElement
+        const rect = containerElement.getBoundingClientRect()
+
+        // If photo container is taller than 500px, force page break before it
+        if (rect.height > 500) {
+            containerElement.style.pageBreakBefore = 'always'
+            containerElement.style.breakBefore = 'page'
+            console.log('Adding page break before large photo container')
+        }
+    })
+
+    // Fix photo containers to prevent metadata cutoff and page breaks
     const photoContainers = container.querySelectorAll(
         '.photo-report-container',
     )
     photoContainers.forEach(container => {
         const containerElement = container as HTMLElement
-        // Remove all height and overflow restrictions
+        // Basic fixes for metadata visibility
+        containerElement.style.overflow = 'visible'
         containerElement.style.maxHeight = 'none'
         containerElement.style.height = 'auto'
-        containerElement.style.overflow = 'visible'
-        containerElement.style.overflowX = 'visible'
-        containerElement.style.overflowY = 'visible'
-        containerElement.style.marginBottom = '25px'
-        containerElement.style.paddingBottom = '10px'
+
+        // Moderate page break prevention for photo containers
         containerElement.style.pageBreakInside = 'avoid'
-        containerElement.style.display = 'block'
-        containerElement.style.width = 'auto'
-        containerElement.style.maxWidth = '250px'
+        containerElement.style.breakInside = 'avoid'
+        containerElement.style.pageBreakBefore = 'auto'
+        containerElement.style.breakBefore = 'auto'
+        containerElement.style.pageBreakAfter = 'avoid'
+        containerElement.style.breakAfter = 'avoid'
+
+        // Ensure container allows content to be visible and never hidden
+        containerElement.style.maxHeight = 'none' // Allow container to expand
+        containerElement.style.overflow = 'visible' // Allow content to be visible
+        containerElement.style.position = 'relative' // Ensure proper positioning
+        containerElement.style.visibility = 'visible' // Ensure visibility
+        containerElement.style.display = 'block' // Ensure display
+        containerElement.style.opacity = '1' // Ensure full opacity
     })
 
-    // Fix metadata text containers (the div wrapping the small elements)
-    const metadataContainers = container.querySelectorAll(
-        '.photo-report-container > div',
-    )
-    metadataContainers.forEach(container => {
-        const containerElement = container as HTMLElement
-        containerElement.style.overflow = 'visible'
-        containerElement.style.maxHeight = 'none'
-        containerElement.style.height = 'auto'
-        containerElement.style.marginTop = '8px'
-        containerElement.style.marginBottom = '0'
-        containerElement.style.padding = '0'
-    })
-
-    // Ensure metadata text is properly sized and visible
+    // Ensure metadata text is visible and doesn't get cut off
     const metadataTexts = container.querySelectorAll(
         '.photo-report-container small',
     )
     metadataTexts.forEach(text => {
         const textElement = text as HTMLElement
-        textElement.style.fontSize = '9px'
-        textElement.style.lineHeight = '1.3'
-        textElement.style.marginTop = '5px'
-        textElement.style.marginBottom = '0'
-        textElement.style.display = 'block'
-        textElement.style.wordWrap = 'break-word'
-        textElement.style.overflowWrap = 'break-word'
-        textElement.style.whiteSpace = 'normal'
         textElement.style.overflow = 'visible'
         textElement.style.maxHeight = 'none'
         textElement.style.height = 'auto'
-        textElement.style.color = '#333'
-        textElement.style.fontWeight = 'normal'
-    })
-
-    // Fix photo rows to ensure proper spacing
-    const photoRows = container.querySelectorAll('.photo-row')
-    photoRows.forEach(row => {
-        const rowElement = row as HTMLElement
-        rowElement.style.gap = '20px'
-        rowElement.style.alignItems = 'start'
-        rowElement.style.marginBottom = '0'
-    })
-
-    // Fix photo cards to ensure proper spacing
-    const photoCards = container.querySelectorAll('.photo-card')
-    photoCards.forEach(card => {
-        const cardElement = card as HTMLElement
-        cardElement.style.overflow = 'visible'
-        cardElement.style.maxHeight = 'none'
-        cardElement.style.marginBottom = '30px'
-        cardElement.style.pageBreakInside = 'avoid'
-        cardElement.style.breakInside = 'avoid'
+        textElement.style.display = 'block'
+        textElement.style.pageBreakInside = 'avoid'
+        textElement.style.breakInside = 'avoid'
+        textElement.style.pageBreakAfter = 'avoid'
+        textElement.style.breakAfter = 'avoid'
+        textElement.style.marginBottom = '5px'
+        textElement.style.visibility = 'visible'
+        textElement.style.display = 'block'
+        textElement.style.opacity = '1'
     })
 
     // Add minimal page break controls to prevent content cutoff
@@ -304,6 +334,8 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
         ) {
             elementStyle.pageBreakAfter = 'avoid'
             elementStyle.breakAfter = 'avoid'
+            elementStyle.pageBreakBefore = 'auto'
+            elementStyle.breakBefore = 'auto'
         }
 
         // Prevent page breaks inside cards and containers
@@ -322,10 +354,19 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
             elementStyle.breakInside = 'avoid'
         }
 
-        // Prevent orphaned text
+        // Prevent orphaned text and ensure proper spacing and visibility
         if (element.tagName === 'P' || element.tagName === 'DIV') {
             elementStyle.orphans = '3'
             elementStyle.widows = '3'
+            elementStyle.pageBreakInside = 'avoid'
+            elementStyle.breakInside = 'avoid'
+            elementStyle.pageBreakBefore = 'auto'
+            elementStyle.breakBefore = 'auto'
+            elementStyle.marginBottom = '10px'
+            elementStyle.marginTop = '5px'
+            elementStyle.visibility = 'visible'
+            elementStyle.display = 'block'
+            elementStyle.opacity = '1'
         }
 
         // Add spacing for lists
@@ -339,32 +380,12 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
             elementStyle.pageBreakInside = 'avoid'
             elementStyle.breakInside = 'avoid'
         }
+
+        // Ensure all elements are visible
+        elementStyle.visibility = 'visible'
+        elementStyle.display = elementStyle.display || 'block'
+        elementStyle.opacity = '1'
     })
-
-    // Clean up extra space and padding that might cause blank pages
-    const containerElement = container as HTMLElement
-    containerElement.style.paddingBottom = '0'
-    containerElement.style.marginBottom = '0'
-
-    // Remove any trailing empty elements that might cause blank pages
-    const lastChild = container.lastElementChild
-    if (lastChild) {
-        const lastChildElement = lastChild as HTMLElement
-        // Remove excessive bottom margin/padding from last element
-        lastChildElement.style.marginBottom = '0'
-        lastChildElement.style.paddingBottom = '0'
-
-        // If the last element is empty or just whitespace, remove it
-        if (
-            lastChildElement.textContent?.trim() === '' &&
-            lastChildElement.children.length === 0
-        ) {
-            lastChildElement.remove()
-        }
-    }
-
-    // Add strategic page breaks for large content
-    addStrategicPageBreaks(container)
 }
 
 /**
@@ -482,23 +503,22 @@ const PrintSection: FC<PrintSectionProps> = ({
             await ensureAllImagesLoaded(wrapper as HTMLElement)
 
             const opt = {
-                margin: [20, 20, 20, 20], // Balanced margins
+                margin: [15, 15, 15, 15], // Balanced margins
                 filename: 'report.pdf',
                 image: {
                     type: 'jpeg',
-                    quality: 1.0, // Maximum quality
+                    quality: 0.98, // High quality but stable
                 },
                 html2canvas: {
-                    scale: 2.5, // Increased to 2.5 for better quality
+                    scale: 2, // Balanced resolution for stability and quality
                     useCORS: true,
-                    logging: true,
+                    logging: false, // Disable logging for cleaner output
                     allowTaint: true, // Allow cross-origin images
-                    imageTimeout: 20000, // Increased timeout for higher quality
+                    imageTimeout: 15000, // Balanced timeout
                     letterRendering: true, // Better text rendering
                     removeContainer: true, // Remove container after processing
                     backgroundColor: '#ffffff', // Ensure white background
                     foreignObjectRendering: false, // Keep disabled for stability
-                    imageRendering: 'high-quality', // High-quality image rendering
                 },
                 jsPDF: {
                     unit: 'pt',
@@ -507,10 +527,9 @@ const PrintSection: FC<PrintSectionProps> = ({
                     compress: false, // Disable PDF compression for better image quality
                     putOnlyUsedFonts: true, // Optimize font usage
                     autoPaging: 'text', // Better text flow
-                    precision: 16, // High precision for better quality
                 },
                 pagebreak: {
-                    mode: ['css', 'legacy'], // Removed 'avoid-all' which was causing issues
+                    mode: ['css'], // Simplified page break mode
                     before: '.page-break-before',
                     after: '.page-break-after',
                     avoid: '.page-break-avoid',
@@ -522,7 +541,7 @@ const PrintSection: FC<PrintSectionProps> = ({
                 .from(wrapper)
                 .output('blob')
 
-            // post-process PDF to remove blank pages
+            // Remove blank pages from the end of the PDF
             const cleanedPdfBlob = await removeBlankPagesFromPDF(pdfBlob)
 
             // create document ID in vapor-core, upload to S3

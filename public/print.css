@@ -535,19 +535,6 @@ input, textarea, select {
   break-inside: avoid;
 }
 
-/* Additional spacing for better page breaks */
-.photo-report-container {
-  margin-bottom: 25px;
-}
-
-.photo-report-container img {
-  margin-bottom: 20px;
-}
-
-.photo-report-container small {
-  margin-bottom: 10px;
-}
-
 /* used in photo-input component */
 .photo-delete-button {
   position: absolute;
