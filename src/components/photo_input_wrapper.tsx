@@ -59,6 +59,9 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                 photoProperties.MAX_IMAGE_DIM_HEIGHT,
                 photoProperties.MAX_IMAGE_DIM_WIDTH,
             ),
+            quality: 0.95,
+            fileType: 'image/jpeg',
+            alwaysKeepResolution: true, // Preserve original resolution when possible
         }
         const compressedFile = await imageCompression(
             imageBlob as File,

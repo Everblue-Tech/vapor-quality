@@ -132,7 +132,7 @@ export function isPhoto(blob: Blob): boolean {
  * intended for upload and storage in the database
  */
 export const photoProperties = {
-    MAX_IMAGE_DIM_WIDTH: 800,
-    MAX_IMAGE_DIM_HEIGHT: 500,
-    MAX_SIZE_IN_MB: 0.2, //The maximum file size of the photo in megabytes
+    MAX_IMAGE_DIM_WIDTH: 1920, // Increased to Full HD width for maximum quality
+    MAX_IMAGE_DIM_HEIGHT: 1080, // Increased to Full HD height for maximum quality
+    MAX_SIZE_IN_MB: 2.0, // Increased to 2MB for better quality preservation
 }

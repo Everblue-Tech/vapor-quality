@@ -11,6 +11,7 @@ interface PhotoWrapperProps {
     required: boolean
     docId: string
     parent?: any
+    project?: any
 }
 
 /**
@@ -33,25 +34,44 @@ const PhotoWrapper: FC<PhotoWrapperProps> = ({
     required,
     docId,
     parent,
+    project,
 }) => {
     const [matchingAttachments, setMatchingAttachments] = useState<any>({})
-    const [projectDoc, setProjectDoc] = useState<any>(parent)
+    const [projectDoc, setProjectDoc] = useState<any>(parent || project)
     const db = useDB()
 
     useEffect(() => {
-        if (parent) {
-            const projectId = parent?._id || docId
+        const projectRef = parent || project
+        if (projectRef) {
+            const projectId = projectRef?._id || docId
+            console.log(
+                `[PhotoWrapper] Project detected, using project ID: ${projectId}`,
+            )
+            console.log(`[PhotoWrapper] Project object:`, projectRef)
             getMatchingAttachmentsFromParent(projectId)
+        } else {
+            console.log(
+                `[PhotoWrapper] No project detected, will use current document attachments`,
+            )
         }
-    }, [parent])
+    }, [parent, project])
 
     const getMatchingAttachmentsFromParent = (projectDocId: any) => {
+        console.log(
+            `[PhotoWrapper] Getting attachments for project ${projectDocId} with id ${id}`,
+        )
         db.get(projectDocId, { attachments: true })
             .then((doc: { metadata_: any; _attachments: any }) => {
+                console.log(
+                    `[PhotoWrapper] Found document with ${Object.keys(doc._attachments).length} attachments`,
+                )
                 // Filter attachments whose IDs start with given 'id;
                 const matchingAttachments = Object.keys(doc._attachments)
                     .filter(attachmentId => attachmentId.startsWith(id))
                     .map(attachmentId => {
+                        console.log(
+                            `[PhotoWrapper] Processing attachment: ${attachmentId}`,
+                        )
                         const attachment = doc._attachments[attachmentId]
 
                         // Decode the Base64 data to a Blob
@@ -69,7 +89,7 @@ const PhotoWrapper: FC<PhotoWrapperProps> = ({
                          */
                         let location_metadata =
                             doc.metadata_?.attachments?.[attachmentId]
-                        if (attachmentIdParts.length > 1) {
+                        if (attachmentIdParts.length === 3) {
                             // Access nested attachment metadata using the split parts
                             const [firstPart, secondPart, thirdPart] =
                                 attachmentIdParts
@@ -86,6 +106,10 @@ const PhotoWrapper: FC<PhotoWrapperProps> = ({
                         }
                     })
 
+                console.log(
+                    `[PhotoWrapper] Found ${matchingAttachments.length} matching attachments:`,
+                    matchingAttachments.map(a => a.id),
+                )
                 setMatchingAttachments(matchingAttachments)
                 // Set the filtered attachments in state
                 setProjectDoc(doc) // Set the full document if needed
@@ -123,14 +147,28 @@ const PhotoWrapper: FC<PhotoWrapperProps> = ({
     return (
         <StoreContext.Consumer>
             {({ attachments, data }) => {
+                const currentAttachments = getMatchingAttachments(
+                    attachments,
+                    id,
+                )
+                console.log(
+                    `[PhotoWrapper] Current document attachments for ${id}:`,
+                    currentAttachments,
+                )
+                console.log(
+                    `[PhotoWrapper] All attachments in current document:`,
+                    Object.keys(attachments),
+                )
+
+                const projectRef = parent || project
                 return (
                     <Photo
                         description={children}
                         label={label}
                         photos={
-                            parent
+                            projectRef
                                 ? matchingAttachments
-                                : getMatchingAttachments(attachments, id)
+                                : currentAttachments
                         }
                         required={required}
                     />
