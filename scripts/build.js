@@ -107,6 +107,10 @@ checkBrowsers(paths.appPath, isInteractive)
           const publicUrl = paths.publicUrlOrPath;
           const publicPath = config.output.publicPath;
           const buildFolder = path.relative(process.cwd(), paths.appBuild);
+          
+          // Add cache headers after successful build
+          addCacheHeaders();
+          
           printHostingInstructions(
             appPackage,
             publicUrl,
@@ -138,6 +142,123 @@ checkBrowsers(paths.appPath, isInteractive)
     }
     process.exit(1);
   });
+
+// Add cache-busting headers to build output
+const addCacheHeaders = () => {
+  const buildPath = path.join(__dirname, '../build');
+  
+  // Add .htaccess file for Apache servers
+  const htaccessContent = `
+# Aggressive cache invalidation for HTML and manifest files
+<FilesMatch "\\.html$">
+  Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+  Header set Pragma "no-cache"
+  Header set Expires "Thu, 01 Jan 1970 00:00:00 GMT"
+</FilesMatch>
+
+<FilesMatch "manifest\\.json$">
+  Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+  Header set Pragma "no-cache"
+  Header set Expires "Thu, 01 Jan 1970 00:00:00 GMT"
+</FilesMatch>
+
+# Long-term caching for static assets with content hashes
+<FilesMatch "\\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$">
+  Header set Cache-Control "public, max-age=31536000, immutable"
+</FilesMatch>
+
+# Service worker should not be cached
+<FilesMatch "service-worker\\.js$">
+  Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+  Header set Pragma "no-cache"
+  Header set Expires "Thu, 01 Jan 1970 00:00:00 GMT"
+</FilesMatch>
+`;
+  
+  fs.writeFileSync(path.join(buildPath, '.htaccess'), htaccessContent);
+  
+  // Add _headers file for Netlify
+  const netlifyHeaders = `
+# HTML files - never cache
+/*.html
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: Thu, 01 Jan 1970 00:00:00 GMT
+
+# Manifest files - never cache
+/manifest.json
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: Thu, 01 Jan 1970 00:00:00 GMT
+
+# Asset manifest - never cache
+/asset-manifest.json
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: Thu, 01 Jan 1970 00:00:00 GMT
+
+# Service worker - never cache
+/service-worker.js
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: Thu, 01 Jan 1970 00:00:00 GMT
+
+# Static assets with content hashes - long-term cache
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.png
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.jpg
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.svg
+  Cache-Control: public, max-age=31536000, immutable
+`;
+  
+  fs.writeFileSync(path.join(buildPath, '_headers'), netlifyHeaders);
+  
+  // Add web.config for IIS servers
+  const webConfigContent = `<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+    <staticContent>
+      <clientCache cacheControlMode="UseMaxAge" cacheControlMaxAge="365.00:00:00" />
+    </staticContent>
+    <httpProtocol>
+      <customHeaders>
+        <add name="Cache-Control" value="no-cache, no-store, must-revalidate, max-age=0" />
+        <add name="Pragma" value="no-cache" />
+        <add name="Expires" value="Thu, 01 Jan 1970 00:00:00 GMT" />
+      </customHeaders>
+    </httpProtocol>
+    <rewrite>
+      <rules>
+        <rule name="HTML Cache Control" stopProcessing="true">
+          <match url=".*\\.html$" />
+          <action type="Rewrite" url="{R:0}" />
+          <serverVariables>
+            <set name="RESPONSE_Cache-Control" value="no-cache, no-store, must-revalidate, max-age=0" />
+            <set name="RESPONSE_Pragma" value="no-cache" />
+            <set name="RESPONSE_Expires" value="Thu, 01 Jan 1970 00:00:00 GMT" />
+          </serverVariables>
+        </rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>`;
+  
+  fs.writeFileSync(path.join(buildPath, 'web.config'), webConfigContent);
+  
+  console.log('✅ Added comprehensive cache headers to build output');
+  console.log('   - .htaccess (Apache)');
+  console.log('   - _headers (Netlify)');
+  console.log('   - web.config (IIS)');
+};
 
 // Create the production build and print the deployment instructions.
 // PNNL has modified webpack.config.js to make configFactory asycronous so it can
