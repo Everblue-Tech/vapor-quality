@@ -18,7 +18,6 @@ http {
         listen 80;
         server_name ${SERVER_NAME};
 
-        # Serve static files
         root /usr/share/nginx/html;
         index index.html;
 
@@ -59,6 +58,11 @@ http {
                 return 204;
             }
             try_files $uri /index.html;
+            
+            # Add cache invalidation headers for HTML files
+            add_header Cache-Control "no-cache, no-store, must-revalidate, max-age=0" always;
+            add_header Pragma "no-cache" always;
+            add_header Expires "Thu, 01 Jan 1970 00:00:00 GMT" always;
         }
 
         # Proxy /config requests to the Express config server
@@ -71,18 +75,18 @@ http {
             proxy_cache_bypass $http_upgrade;
         }
 
-        # Cache static assets
+        # Cache static assets with content hashes - long-term cache
         location ~* \.(?:ico|css|js|gif|jpe?g|png|woff2?|eot|ttf|otf|svg|map)$ {
-            expires 6M;
+            expires 1y;
             access_log off;
-            add_header Cache-Control "public, max-age=31536000, immutable";
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
         }
 
-        # Prevent caching for service workers
-        location /service-worker.js {
-            root /usr/share/nginx/html;
-            add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate";
-            expires 0;
+        # Prevent caching for service workers and manifest files
+        location ~* (service-worker\.js|manifest\.json|asset-manifest\.json)$ {
+            add_header Cache-Control "no-cache, no-store, must-revalidate, max-age=0" always;
+            add_header Pragma "no-cache" always;
+            add_header Expires "Thu, 01 Jan 1970 00:00:00 GMT" always;
             access_log off;
         }
 
