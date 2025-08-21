@@ -78,6 +78,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                         file: blob,
                         userId: localStorage.getItem('user_id'),
                         organizationId: localStorage.getItem('organization_id'),
+                        applicationId: localStorage.getItem('application_id'),
                         documentType: 'Quality Install Photo',
                         measureName:
                             projectDoc.metadata_?.doc_name || 'unknown',
@@ -107,7 +108,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
 
             // send the full form data to RDS
             const updatedDoc = await db.get(id)
-            console.log(updatedDoc)
+
             const formData = {
                 metadata_: updatedDoc.metadata_,
                 data_: updatedDoc.data_,
@@ -120,6 +121,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 processStepId: localStorage.getItem('process_step_id')!,
                 formData,
                 docId: id,
+                applicationId: localStorage.getItem('application_id')!,
             })
 
             updateValue('created')
