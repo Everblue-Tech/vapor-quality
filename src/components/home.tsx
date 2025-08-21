@@ -1115,6 +1115,7 @@ const Home: FC = () => {
                     <br />
                     Click here to learn more about the{' '}
                     <a
+                        className="link-blue"
                         href="https://www.pnnl.gov/projects/quality-install-tool"
                         target="_blank"
                     >
