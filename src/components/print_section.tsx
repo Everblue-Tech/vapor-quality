@@ -128,7 +128,8 @@ const isPageLikelyBlank = async (
  */
 const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
     const chunks: HTMLElement[] = []
-    const maxChunkHeight = 2000 // Maximum height per chunk in pixels
+    const maxChunkHeight = 1200 // Further reduced height per chunk to avoid canvas size limits
+    const maxChunkWidth = 800 // Maximum width per chunk
     const children = Array.from(container.children) as HTMLElement[]
 
     // If there are no children, return the container as a single chunk
@@ -144,15 +145,24 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
     let currentChunkHeight = 0
 
     children.forEach((child, index) => {
-        // Get the actual height of the child element
+        // Get the actual height and width of the child element
         const childHeight = Math.max(
             child.offsetHeight || 0,
             child.scrollHeight || 0,
             child.clientHeight || 0,
         )
+        const childWidth = Math.max(
+            child.offsetWidth || 0,
+            child.scrollWidth || 0,
+            child.clientWidth || 0,
+        )
 
-        // If this child would exceed the max height and we have a current chunk, start a new chunk
-        if (currentChunkHeight + childHeight > maxChunkHeight && currentChunk) {
+        // If this child would exceed the max height or width and we have a current chunk, start a new chunk
+        if (
+            (currentChunkHeight + childHeight > maxChunkHeight ||
+                childWidth > maxChunkWidth) &&
+            currentChunk
+        ) {
             chunks.push(currentChunk)
             currentChunk = null
             currentChunkHeight = 0
@@ -164,6 +174,7 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
             currentChunk.className = 'pdf-chunk'
             currentChunk.style.cssText = `
                 width: 100%;
+                max-width: ${maxChunkWidth}px;
                 min-height: 100px;
                 page-break-inside: avoid;
                 break-inside: avoid;
@@ -214,7 +225,7 @@ const generateChunkPDF = async (
             quality: 0.98,
         },
         html2canvas: {
-            scale: 2,
+            scale: 1.5, // Reduced scale to avoid canvas size limits
             useCORS: true,
             logging: false,
             allowTaint: true,
@@ -223,6 +234,8 @@ const generateChunkPDF = async (
             removeContainer: true,
             backgroundColor: '#ffffff',
             foreignObjectRendering: false,
+            width: 800, // Limit canvas width
+            height: 1200, // Limit canvas height
         },
         jsPDF: {
             unit: 'pt',
@@ -702,9 +715,82 @@ const PrintSection: FC<PrintSectionProps> = ({
                             `Error generating PDF for chunk ${i + 1}:`,
                             chunkError,
                         )
-                        throw new Error(
-                            `Failed to generate PDF for chunk ${i + 1}: ${chunkError}`,
-                        )
+
+                        // Check if it's a canvas size error
+                        if (
+                            chunkError instanceof Error &&
+                            (chunkError.message.includes(
+                                'Canvas exceeds max size',
+                            ) ||
+                                chunkError.message.includes(
+                                    'CanvasRenderingContext2D.scale',
+                                ))
+                        ) {
+                            console.log(
+                                `Canvas size error for chunk ${i + 1}, trying with smaller scale...`,
+                            )
+
+                            // Try with even smaller scale and dimensions
+                            try {
+                                const smallerOpt = {
+                                    margin: [15, 15, 15, 15],
+                                    filename: `chunk-${i}-small.pdf`,
+                                    image: {
+                                        type: 'jpeg',
+                                        quality: 0.8, // Lower quality for smaller size
+                                    },
+                                    html2canvas: {
+                                        scale: 1, // Minimal scale
+                                        useCORS: true,
+                                        logging: false,
+                                        allowTaint: true,
+                                        imageTimeout: 10000,
+                                        letterRendering: true,
+                                        removeContainer: true,
+                                        backgroundColor: '#ffffff',
+                                        foreignObjectRendering: false,
+                                        width: 600, // Smaller width
+                                        height: 800, // Smaller height
+                                    },
+                                    jsPDF: {
+                                        unit: 'pt',
+                                        format: 'a4',
+                                        orientation: 'portrait',
+                                        compress: true, // Enable compression
+                                        putOnlyUsedFonts: true,
+                                        autoPaging: 'text',
+                                    },
+                                    pagebreak: {
+                                        mode: ['css'],
+                                        before: '.page-break-before',
+                                        after: '.page-break-after',
+                                        avoid: '.page-break-avoid',
+                                    },
+                                }
+
+                                const smallChunkPdfBlob = await html2pdf()
+                                    .set(smallerOpt)
+                                    .from(chunks[i])
+                                    .output('blob')
+
+                                pdfBlobs.push(smallChunkPdfBlob)
+                                console.log(
+                                    `Successfully generated PDF for chunk ${i + 1} with smaller scale`,
+                                )
+                            } catch (smallChunkError) {
+                                console.error(
+                                    `Failed to generate PDF for chunk ${i + 1} even with smaller scale:`,
+                                    smallChunkError,
+                                )
+                                throw new Error(
+                                    `Failed to generate PDF for chunk ${i + 1} due to canvas size limits: ${chunkError.message}`,
+                                )
+                            }
+                        } else {
+                            throw new Error(
+                                `Failed to generate PDF for chunk ${i + 1}: ${chunkError}`,
+                            )
+                        }
                     }
                 }
 
@@ -733,7 +819,7 @@ const PrintSection: FC<PrintSectionProps> = ({
                         quality: 0.98, // High quality but stable
                     },
                     html2canvas: {
-                        scale: 2, // Balanced resolution for stability and quality
+                        scale: 1.5, // Reduced scale to avoid canvas size limits
                         useCORS: true,
                         logging: false, // Disable logging for cleaner output
                         allowTaint: true, // Allow cross-origin images
@@ -742,6 +828,8 @@ const PrintSection: FC<PrintSectionProps> = ({
                         removeContainer: true, // Remove container after processing
                         backgroundColor: '#ffffff', // Ensure white background
                         foreignObjectRendering: false, // Keep disabled for stability
+                        width: 800, // Limit canvas width
+                        height: 1200, // Limit canvas height
                     },
                     jsPDF: {
                         unit: 'pt',
