@@ -64,7 +64,12 @@ const removeBlankPagesFromPDF = async (pdfBlob: Blob): Promise<Blob> => {
 
             // Save the modified PDF
             const modifiedPdfBytes = await pdfDoc.save()
-            return new Blob([modifiedPdfBytes], { type: 'application/pdf' })
+            const buffer = new ArrayBuffer(modifiedPdfBytes.byteLength)
+            const view = new Uint8Array(buffer)
+            view.set(modifiedPdfBytes)
+            return new Blob([buffer], {
+                type: 'application/pdf',
+            })
         }
 
         return pdfBlob
@@ -260,7 +265,12 @@ const combinePDFs = async (pdfBlobs: Blob[]): Promise<Blob> => {
         }
 
         const combinedPdfBytes = await pdfDoc.save()
-        return new Blob([combinedPdfBytes], { type: 'application/pdf' })
+        const buffer = new ArrayBuffer(combinedPdfBytes.byteLength)
+        const view = new Uint8Array(buffer)
+        view.set(combinedPdfBytes)
+        return new Blob([buffer], {
+            type: 'application/pdf',
+        })
     } catch (error) {
         console.error('Error combining PDFs:', error)
         throw new Error('Failed to combine PDF chunks')

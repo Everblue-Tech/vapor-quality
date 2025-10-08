@@ -5,6 +5,9 @@ import PouchDBUpsert from 'pouchdb-upsert'
 import { Button, ListGroup, Modal } from 'react-bootstrap'
 import templatesConfig from '../templates/templates_config'
 import { LinkContainer } from 'react-router-bootstrap'
+
+// Type assertion wrapper to fix TypeScript compatibility issue
+const LinkContainerWrapper = LinkContainer as any
 import { useParams } from 'react-router-dom'
 import { useDB } from '../utilities/database_utils'
 import { useNavigate } from 'react-router-dom'
@@ -240,7 +243,7 @@ const JobList: React.FC = () => {
 
             {sortedJobs.map((jobID, job) => (
                 <ListGroup key={jobID._id}>
-                    <LinkContainer
+                    <LinkContainerWrapper
                         key={jobID._id}
                         to={`/app/${projectId}/${workflowName}/${jobID._id}`}
                     >
@@ -276,7 +279,7 @@ const JobList: React.FC = () => {
                                 </Button>
                             </span>
                         </ListGroup.Item>
-                    </LinkContainer>
+                    </LinkContainerWrapper>
                     <StringInputModal
                         isOpen={modalOpenMap[job] || false}
                         closeModal={() => {

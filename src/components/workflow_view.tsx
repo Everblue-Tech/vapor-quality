@@ -1,6 +1,9 @@
-import { useState, type FC, useEffect } from 'react'
+import React, { useState, type FC, useEffect } from 'react'
 import { ListGroup, Button } from 'react-bootstrap'
 import { LinkContainer } from 'react-router-bootstrap'
+
+// Type assertion wrapper to fix TypeScript compatibility issue
+const LinkContainerWrapper = LinkContainer as any
 import templatesConfig, {
     mapMeasuresToTemplateValues,
     measureTypeMapping,
@@ -130,28 +133,28 @@ const WorkFlowView: FC = () => {
             // no jobs: show just the workflow
             if (jobCount === 0) {
                 return [
-                    <LinkContainer
+                    <LinkContainerWrapper
                         key={`${key}-0`}
                         to={`/app/${projectId}/${key}`}
                     >
                         <ListGroup.Item action={true}>
                             {val.title}
                         </ListGroup.Item>
-                    </LinkContainer>,
-                ]
+                    </LinkContainerWrapper>,
+                ] as React.ReactElement[]
             }
 
             // one or more jobs: list each job with its own link
             return Array.from({ length: jobCount }).map((_, jobIndex) => (
-                <LinkContainer
+                <LinkContainerWrapper
                     key={`${key}-${jobIndex}`}
                     to={`/app/${projectId}/${key}/${jobIndex}`}
                 >
                     <ListGroup.Item action={true}>
                         {val.title} — Job {jobIndex + 1}
                     </ListGroup.Item>
-                </LinkContainer>
-            ))
+                </LinkContainerWrapper>
+            )) as React.ReactElement[]
         })
 
     return (

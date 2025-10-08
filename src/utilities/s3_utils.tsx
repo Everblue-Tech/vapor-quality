@@ -286,7 +286,14 @@ export const streamToBlob = async (
         done = readerDone
     }
 
-    return new Blob(chunks, { type: contentType })
+    // Convert chunks to proper ArrayBuffer format
+    const buffers = chunks.map(chunk => {
+        const buffer = new ArrayBuffer(chunk.byteLength)
+        const view = new Uint8Array(buffer)
+        view.set(chunk)
+        return buffer
+    })
+    return new Blob(buffers, { type: contentType })
 }
 
 // extension map to standardize ContentType across uploads
