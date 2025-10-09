@@ -722,6 +722,7 @@ export const closeProcessStepIfAllMeasuresComplete = async (
     const expectedMeasureNames: string[] = JSON.parse(
         localStorage.getItem('measures') || '[]',
     )
+    console.log('expectedMeasureNames', expectedMeasureNames)
 
     if (!processId || !processStepId) {
         console.warn('Missing required identifiers.')
@@ -742,12 +743,16 @@ export const closeProcessStepIfAllMeasuresComplete = async (
         }
 
         const formJson = await formDataRes.json()
+        console.log('formJson', formJson)
         const formData = formJson?.data ?? {}
+        console.log('formData', formData)
         const actualMeasures = formData?.measures || []
+        
 
         const allCompleted = expectedMeasureNames.every(expected => {
             const actualNames = measureTypeMapping[expected.toLowerCase()] || []
-
+            console.log('actualNames', actualNames)
+            console.log('actualMeasures', actualMeasures)
             return actualMeasures.some(
                 (actual: any) =>
                     actualNames.includes(actual.name) &&
@@ -758,6 +763,7 @@ export const closeProcessStepIfAllMeasuresComplete = async (
                     ),
             )
         })
+        console.log('allCompleted', allCompleted)
 
         if (!allCompleted) {
             console.log('Not all expected measures are marked completed.')
@@ -775,6 +781,7 @@ export const closeProcessStepIfAllMeasuresComplete = async (
                 body: JSON.stringify({ condition: 'CLOSED' }),
             },
         )
+        console.log('closeRes', closeRes)
 
         if (!closeRes.ok) {
             const errorBody = await closeRes.text()
