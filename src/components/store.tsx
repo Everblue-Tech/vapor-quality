@@ -747,7 +747,6 @@ export const closeProcessStepIfAllMeasuresComplete = async (
         const formData = formJson?.data ?? {}
         console.log('formData', formData)
         const actualMeasures = formData?.measures || []
-        
 
         const allCompleted = expectedMeasureNames.every(expected => {
             const actualNames = measureTypeMapping[expected.toLowerCase()] || []
