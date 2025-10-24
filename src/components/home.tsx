@@ -8,6 +8,9 @@ import React, {
 } from 'react'
 import { ListGroup, Button, Modal } from 'react-bootstrap'
 import { LinkContainer } from 'react-router-bootstrap'
+
+// Type assertion wrapper to fix TypeScript compatibility issue
+const LinkContainerWrapper = LinkContainer as any
 import { TfiTrash, TfiPencil, TfiArrowDown } from 'react-icons/tfi'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { deleteEmptyProjects, useDB } from '../utilities/database_utils'
@@ -946,7 +949,7 @@ const Home: FC = () => {
             : projectList.map(key => (
                   <div key={key._id}>
                       <ListGroup key={key._id} className="padding">
-                          <LinkContainer
+                          <LinkContainerWrapper
                               key={key}
                               to={`/app/${key._id}/workflows`}
                               onClick={() =>
@@ -1010,7 +1013,7 @@ const Home: FC = () => {
                                       <>{key.data_?.location?.zip_code}</>
                                   )}
                               </ListGroup.Item>
-                          </LinkContainer>
+                          </LinkContainerWrapper>
                       </ListGroup>
                   </div>
               ))

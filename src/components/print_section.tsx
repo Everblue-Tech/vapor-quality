@@ -64,7 +64,12 @@ const removeBlankPagesFromPDF = async (pdfBlob: Blob): Promise<Blob> => {
 
             // Save the modified PDF
             const modifiedPdfBytes = await pdfDoc.save()
-            return new Blob([modifiedPdfBytes], { type: 'application/pdf' })
+            const buffer = new ArrayBuffer(modifiedPdfBytes.byteLength)
+            const view = new Uint8Array(buffer)
+            view.set(modifiedPdfBytes)
+            return new Blob([buffer], {
+                type: 'application/pdf',
+            })
         }
 
         return pdfBlob
@@ -115,6 +120,173 @@ const isPageLikelyBlank = async (
         console.warn('Error checking if page is likely blank:', error)
         // If we can't determine, assume it's not blank to be safe
         return false
+    }
+}
+
+/**
+ * Breaks up large content into manageable chunks for PDF generation
+ */
+const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
+    const chunks: HTMLElement[] = []
+    const maxChunkHeight = 1200 // Further reduced height per chunk to avoid canvas size limits
+    const maxChunkWidth = 800 // Maximum width per chunk
+    const children = Array.from(container.children) as HTMLElement[]
+
+    // If there are no children, return the container as a single chunk
+    if (children.length === 0) {
+        const singleChunk = document.createElement('div')
+        singleChunk.className = 'pdf-chunk'
+        singleChunk.innerHTML = container.innerHTML
+        chunks.push(singleChunk)
+        return chunks
+    }
+
+    let currentChunk: HTMLElement | null = null
+    let currentChunkHeight = 0
+
+    children.forEach((child, index) => {
+        // Get the actual height and width of the child element
+        const childHeight = Math.max(
+            child.offsetHeight || 0,
+            child.scrollHeight || 0,
+            child.clientHeight || 0,
+        )
+        const childWidth = Math.max(
+            child.offsetWidth || 0,
+            child.scrollWidth || 0,
+            child.clientWidth || 0,
+        )
+
+        // If this child would exceed the max height or width and we have a current chunk, start a new chunk
+        if (
+            (currentChunkHeight + childHeight > maxChunkHeight ||
+                childWidth > maxChunkWidth) &&
+            currentChunk
+        ) {
+            chunks.push(currentChunk)
+            currentChunk = null
+            currentChunkHeight = 0
+        }
+
+        // Create a new chunk if we don't have one
+        if (!currentChunk) {
+            currentChunk = document.createElement('div')
+            currentChunk.className = 'pdf-chunk'
+            currentChunk.style.cssText = `
+                width: 100%;
+                max-width: ${maxChunkWidth}px;
+                min-height: 100px;
+                page-break-inside: avoid;
+                break-inside: avoid;
+                overflow: visible;
+                position: relative;
+            `
+        }
+
+        // Clone the child and add it to the current chunk
+        const clonedChild = child.cloneNode(true) as HTMLElement
+
+        // Ensure the cloned child maintains its styling
+        clonedChild.style.cssText = child.style.cssText
+
+        currentChunk.appendChild(clonedChild)
+        currentChunkHeight += childHeight
+
+        // If this is the last child, add the current chunk
+        if (index === children.length - 1 && currentChunk) {
+            chunks.push(currentChunk)
+        }
+    })
+
+    // If no chunks were created (very small content), create one with all content
+    if (chunks.length === 0) {
+        const singleChunk = document.createElement('div')
+        singleChunk.className = 'pdf-chunk'
+        singleChunk.innerHTML = container.innerHTML
+        chunks.push(singleChunk)
+    }
+
+    console.log(`Content broken into ${chunks.length} chunks`)
+    return chunks
+}
+
+/**
+ * Generates PDF from a single chunk
+ */
+const generateChunkPDF = async (
+    chunk: HTMLElement,
+    chunkIndex: number,
+): Promise<Blob> => {
+    const opt = {
+        margin: [15, 15, 15, 15],
+        filename: `chunk-${chunkIndex}.pdf`,
+        image: {
+            type: 'jpeg',
+            quality: 0.98,
+        },
+        html2canvas: {
+            scale: 1.5, // Reduced scale to avoid canvas size limits
+            useCORS: true,
+            logging: false,
+            allowTaint: true,
+            imageTimeout: 15000,
+            letterRendering: true,
+            removeContainer: true,
+            backgroundColor: '#ffffff',
+            foreignObjectRendering: false,
+            width: 800, // Limit canvas width
+            height: 1200, // Limit canvas height
+        },
+        jsPDF: {
+            unit: 'pt',
+            format: 'a4',
+            orientation: 'portrait',
+            compress: false,
+            putOnlyUsedFonts: true,
+            autoPaging: 'text',
+        },
+        pagebreak: {
+            mode: ['css'],
+            before: '.page-break-before',
+            after: '.page-break-after',
+            avoid: '.page-break-avoid',
+        },
+    }
+
+    return await html2pdf().set(opt).from(chunk).output('blob')
+}
+
+/**
+ * Combines multiple PDF blobs into a single PDF
+ */
+const combinePDFs = async (pdfBlobs: Blob[]): Promise<Blob> => {
+    try {
+        const pdfDoc = await PDFDocument.create()
+
+        for (const pdfBlob of pdfBlobs) {
+            const pdfBytes = await pdfBlob.arrayBuffer()
+            const sourcePdf = await PDFDocument.load(pdfBytes)
+
+            // Copy all pages from the source PDF
+            const pageIndices = sourcePdf.getPageIndices()
+            const copiedPages = await pdfDoc.copyPages(sourcePdf, pageIndices)
+
+            // Add each copied page to the combined PDF
+            copiedPages.forEach((page: any) => {
+                pdfDoc.addPage(page)
+            })
+        }
+
+        const combinedPdfBytes = await pdfDoc.save()
+        const buffer = new ArrayBuffer(combinedPdfBytes.byteLength)
+        const view = new Uint8Array(buffer)
+        view.set(combinedPdfBytes)
+        return new Blob([buffer], {
+            type: 'application/pdf',
+        })
+    } catch (error) {
+        console.error('Error combining PDFs:', error)
+        throw new Error('Failed to combine PDF chunks')
     }
 }
 
@@ -496,53 +668,195 @@ const PrintSection: FC<PrintSectionProps> = ({
                 alert('Error: .pdf-wrapper not found inside container.')
                 return
             }
+
             // preprocess images for better PDF quality
             preprocessImagesForPDF(wrapper as HTMLElement)
 
             // ensure all images are fully loaded before PDF generation
             await ensureAllImagesLoaded(wrapper as HTMLElement)
 
-            const opt = {
-                margin: [15, 15, 15, 15], // Balanced margins
-                filename: 'report.pdf',
-                image: {
-                    type: 'jpeg',
-                    quality: 0.98, // High quality but stable
-                },
-                html2canvas: {
-                    scale: 2, // Balanced resolution for stability and quality
-                    useCORS: true,
-                    logging: false, // Disable logging for cleaner output
-                    allowTaint: true, // Allow cross-origin images
-                    imageTimeout: 15000, // Balanced timeout
-                    letterRendering: true, // Better text rendering
-                    removeContainer: true, // Remove container after processing
-                    backgroundColor: '#ffffff', // Ensure white background
-                    foreignObjectRendering: false, // Keep disabled for stability
-                },
-                jsPDF: {
-                    unit: 'pt',
-                    format: 'a4',
-                    orientation: 'portrait',
-                    compress: false, // Disable PDF compression for better image quality
-                    putOnlyUsedFonts: true, // Optimize font usage
-                    autoPaging: 'text', // Better text flow
-                },
-                pagebreak: {
-                    mode: ['css'], // Simplified page break mode
-                    before: '.page-break-before',
-                    after: '.page-break-after',
-                    avoid: '.page-break-avoid',
-                },
+            // Check if content is too large and needs chunking
+            const contentHeight = wrapper.scrollHeight
+            const maxSingleChunkHeight = 3000 // Height threshold for chunking
+
+            let finalPdfBlob: Blob
+
+            if (contentHeight > maxSingleChunkHeight) {
+                console.log(
+                    `Content height (${contentHeight}px) exceeds threshold, using chunking approach`,
+                )
+
+                // Break content into chunks
+                const chunks = chunkContentForPDF(wrapper as HTMLElement)
+                const pdfBlobs: Blob[] = []
+
+                // Generate PDF for each chunk with error handling
+                for (let i = 0; i < chunks.length; i++) {
+                    try {
+                        console.log(
+                            `Generating PDF for chunk ${i + 1}/${chunks.length}`,
+                        )
+
+                        // Preprocess images for this chunk
+                        preprocessImagesForPDF(chunks[i])
+                        await ensureAllImagesLoaded(chunks[i])
+
+                        const chunkPdfBlob = await generateChunkPDF(
+                            chunks[i],
+                            i,
+                        )
+                        pdfBlobs.push(chunkPdfBlob)
+
+                        console.log(
+                            `Successfully generated PDF for chunk ${i + 1}`,
+                        )
+                    } catch (chunkError) {
+                        console.error(
+                            `Error generating PDF for chunk ${i + 1}:`,
+                            chunkError,
+                        )
+
+                        // Check if it's a canvas size error
+                        if (
+                            chunkError instanceof Error &&
+                            (chunkError.message.includes(
+                                'Canvas exceeds max size',
+                            ) ||
+                                chunkError.message.includes(
+                                    'CanvasRenderingContext2D.scale',
+                                ))
+                        ) {
+                            console.log(
+                                `Canvas size error for chunk ${i + 1}, trying with smaller scale...`,
+                            )
+
+                            // Try with even smaller scale and dimensions
+                            try {
+                                const smallerOpt = {
+                                    margin: [15, 15, 15, 15],
+                                    filename: `chunk-${i}-small.pdf`,
+                                    image: {
+                                        type: 'jpeg',
+                                        quality: 0.8, // Lower quality for smaller size
+                                    },
+                                    html2canvas: {
+                                        scale: 1, // Minimal scale
+                                        useCORS: true,
+                                        logging: false,
+                                        allowTaint: true,
+                                        imageTimeout: 10000,
+                                        letterRendering: true,
+                                        removeContainer: true,
+                                        backgroundColor: '#ffffff',
+                                        foreignObjectRendering: false,
+                                        width: 600, // Smaller width
+                                        height: 800, // Smaller height
+                                    },
+                                    jsPDF: {
+                                        unit: 'pt',
+                                        format: 'a4',
+                                        orientation: 'portrait',
+                                        compress: true, // Enable compression
+                                        putOnlyUsedFonts: true,
+                                        autoPaging: 'text',
+                                    },
+                                    pagebreak: {
+                                        mode: ['css'],
+                                        before: '.page-break-before',
+                                        after: '.page-break-after',
+                                        avoid: '.page-break-avoid',
+                                    },
+                                }
+
+                                const smallChunkPdfBlob = await html2pdf()
+                                    .set(smallerOpt)
+                                    .from(chunks[i])
+                                    .output('blob')
+
+                                pdfBlobs.push(smallChunkPdfBlob)
+                                console.log(
+                                    `Successfully generated PDF for chunk ${i + 1} with smaller scale`,
+                                )
+                            } catch (smallChunkError) {
+                                console.error(
+                                    `Failed to generate PDF for chunk ${i + 1} even with smaller scale:`,
+                                    smallChunkError,
+                                )
+                                throw new Error(
+                                    `Failed to generate PDF for chunk ${i + 1} due to canvas size limits: ${chunkError.message}`,
+                                )
+                            }
+                        } else {
+                            throw new Error(
+                                `Failed to generate PDF for chunk ${i + 1}: ${chunkError}`,
+                            )
+                        }
+                    }
+                }
+
+                // Combine all PDF chunks into one
+                console.log('Combining PDF chunks...')
+                try {
+                    const combinedPdfBlob = await combinePDFs(pdfBlobs)
+                    finalPdfBlob = combinedPdfBlob
+                    console.log('Successfully combined all PDF chunks')
+                } catch (combineError) {
+                    console.error('Error combining PDF chunks:', combineError)
+                    throw new Error(
+                        `Failed to combine PDF chunks: ${combineError}`,
+                    )
+                }
+            } else {
+                console.log(
+                    `Content height (${contentHeight}px) is within limits, using single PDF generation`,
+                )
+                // Use the original single PDF generation for smaller content
+                const opt = {
+                    margin: [15, 15, 15, 15], // Balanced margins
+                    filename: 'report.pdf',
+                    image: {
+                        type: 'jpeg',
+                        quality: 0.98, // High quality but stable
+                    },
+                    html2canvas: {
+                        scale: 1.5, // Reduced scale to avoid canvas size limits
+                        useCORS: true,
+                        logging: false, // Disable logging for cleaner output
+                        allowTaint: true, // Allow cross-origin images
+                        imageTimeout: 15000, // Balanced timeout
+                        letterRendering: true, // Better text rendering
+                        removeContainer: true, // Remove container after processing
+                        backgroundColor: '#ffffff', // Ensure white background
+                        foreignObjectRendering: false, // Keep disabled for stability
+                        width: 800, // Limit canvas width
+                        height: 1200, // Limit canvas height
+                    },
+                    jsPDF: {
+                        unit: 'pt',
+                        format: 'a4',
+                        orientation: 'portrait',
+                        compress: false, // Disable PDF compression for better image quality
+                        putOnlyUsedFonts: true, // Optimize font usage
+                        autoPaging: 'text', // Better text flow
+                    },
+                    pagebreak: {
+                        mode: ['css'], // Simplified page break mode
+                        before: '.page-break-before',
+                        after: '.page-break-after',
+                        avoid: '.page-break-avoid',
+                    },
+                }
+
+                const pdfBlob = await html2pdf()
+                    .set(opt)
+                    .from(wrapper)
+                    .output('blob')
+
+                finalPdfBlob = pdfBlob
             }
 
-            const pdfBlob = await html2pdf()
-                .set(opt)
-                .from(wrapper)
-                .output('blob')
-
             // Remove blank pages from the end of the PDF
-            const cleanedPdfBlob = await removeBlankPagesFromPDF(pdfBlob)
+            const cleanedPdfBlob = await removeBlankPagesFromPDF(finalPdfBlob)
 
             // create document ID in vapor-core, upload to S3
             vaporCoreDocumentId = await uploadImageToS3AndCreateDocument({
