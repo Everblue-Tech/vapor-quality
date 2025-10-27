@@ -124,7 +124,33 @@ const isPageLikelyBlank = async (
 }
 
 /**
+ * Checks if an element contains images that should not be split
+ */
+const containsImages = (element: HTMLElement): boolean => {
+    const images = element.querySelectorAll('img')
+    return images.length > 0
+}
+
+/**
+ * Checks if an element is an image container that should stay together
+ */
+const isImageContainer = (element: HTMLElement): boolean => {
+    // Check for common image container classes
+    const imageContainerClasses = [
+        'photo-report-container',
+        'image-container',
+        'photo-container',
+        'image-wrapper'
+    ]
+    
+    return imageContainerClasses.some(className => 
+        element.classList.contains(className)
+    ) || containsImages(element)
+}
+
+/**
  * Breaks up large content into manageable chunks for PDF generation
+ * Enhanced to prevent images from being split across pages
  */
 const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
     const chunks: HTMLElement[] = []
@@ -157,12 +183,21 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
             child.clientWidth || 0,
         )
 
+        // Check if this child contains images or is an image container
+        const hasImages = isImageContainer(child)
+        
+        // For image containers, we need to be more conservative about chunking
+        const effectiveMaxHeight = hasImages ? maxChunkHeight * 0.8 : maxChunkHeight
+        
         // If this child would exceed the max height or width and we have a current chunk, start a new chunk
-        if (
-            (currentChunkHeight + childHeight > maxChunkHeight ||
+        // For image containers, always start a new chunk if they won't fit
+        const shouldStartNewChunk = (
+            (currentChunkHeight + childHeight > effectiveMaxHeight ||
                 childWidth > maxChunkWidth) &&
             currentChunk
-        ) {
+        ) || (hasImages && currentChunkHeight > 0) // Always start new chunk for images if current chunk has content
+
+        if (shouldStartNewChunk) {
             chunks.push(currentChunk)
             currentChunk = null
             currentChunkHeight = 0
@@ -172,7 +207,19 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
         if (!currentChunk) {
             currentChunk = document.createElement('div')
             currentChunk.className = 'pdf-chunk'
-            currentChunk.style.cssText = `
+            
+            // Enhanced styling for image containers
+            const chunkStyles = hasImages ? `
+                width: 100%;
+                max-width: ${maxChunkWidth}px;
+                min-height: 100px;
+                page-break-inside: avoid;
+                break-inside: avoid;
+                page-break-before: auto;
+                break-before: auto;
+                overflow: visible;
+                position: relative;
+            ` : `
                 width: 100%;
                 max-width: ${maxChunkWidth}px;
                 min-height: 100px;
@@ -181,6 +228,8 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
                 overflow: visible;
                 position: relative;
             `
+            
+            currentChunk.style.cssText = chunkStyles
         }
 
         // Clone the child and add it to the current chunk
@@ -188,6 +237,16 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
 
         // Ensure the cloned child maintains its styling
         clonedChild.style.cssText = child.style.cssText
+
+        // Add special styling for image containers to prevent page breaks
+        if (hasImages) {
+            clonedChild.style.pageBreakInside = 'avoid'
+            clonedChild.style.breakInside = 'avoid'
+            clonedChild.style.pageBreakBefore = 'auto'
+            clonedChild.style.breakBefore = 'auto'
+            clonedChild.style.pageBreakAfter = 'auto'
+            clonedChild.style.breakAfter = 'auto'
+        }
 
         currentChunk.appendChild(clonedChild)
         currentChunkHeight += childHeight
@@ -422,8 +481,17 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
         img.style.breakInside = 'avoid'
         img.style.pageBreakBefore = 'auto'
         img.style.breakBefore = 'auto'
+        img.style.pageBreakAfter = 'auto'
+        img.style.breakAfter = 'auto'
         img.style.marginTop = '10px'
         img.style.marginBottom = '5px'
+        
+        // Additional CSS properties to prevent image splitting
+        img.style.display = 'block'
+        img.style.float = 'none'
+        img.style.clear = 'both'
+        img.style.orphans = '3'
+        img.style.widows = '3'
 
         // Force high-quality rendering
         img.crossOrigin = 'anonymous'
@@ -456,13 +524,18 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
         containerElement.style.maxHeight = 'none'
         containerElement.style.height = 'auto'
 
-        // Moderate page break prevention for photo containers
+        // Aggressive page break prevention for photo containers
         containerElement.style.pageBreakInside = 'avoid'
         containerElement.style.breakInside = 'avoid'
         containerElement.style.pageBreakBefore = 'auto'
         containerElement.style.breakBefore = 'auto'
-        containerElement.style.pageBreakAfter = 'avoid'
-        containerElement.style.breakAfter = 'avoid'
+        containerElement.style.pageBreakAfter = 'auto'
+        containerElement.style.breakAfter = 'auto'
+        containerElement.style.display = 'block'
+        containerElement.style.float = 'none'
+        containerElement.style.clear = 'both'
+        containerElement.style.orphans = '3'
+        containerElement.style.widows = '3'
 
         // Ensure container allows content to be visible and never hidden
         containerElement.style.maxHeight = 'none' // Allow container to expand
