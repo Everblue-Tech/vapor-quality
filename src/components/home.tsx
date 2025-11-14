@@ -16,7 +16,12 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { deleteEmptyProjects, useDB } from '../utilities/database_utils'
 import ImportDoc from './import_document_wrapper'
 import ExportDoc from './export_document_wrapper'
-import { persistSessionState, StoreContext } from './store'
+import {
+    persistSessionState,
+    StoreContext,
+    closeProcessStepWithPartialMeasuresComplete,
+    hasAtLeastOneMeasureComplete,
+} from './store'
 import { getConfig } from '../config'
 import {
     hydratePhotoFromDocumentId,
@@ -60,6 +65,10 @@ const Home: FC = () => {
     const [selectedProjectToDelete, setSelectedProjectToDelete] = useState('')
     const [selectedProjectNameToDelete, setSelectedProjectNameToDelete] =
         useState('')
+    const [showCloseStepConfirmation, setShowCloseStepConfirmation] =
+        useState(false)
+    const [hasCompletedMeasure, setHasCompletedMeasure] = useState(false)
+    const [isCheckingMeasures, setIsCheckingMeasures] = useState(false)
     // state variables that hold list of entries retrieved from vapor-core for a given process_id and user_id
     const [userId, setUserId] = useState<string | null>(null)
     const [applicationId, setApplicationId] = useState<string | null>(null)
@@ -289,6 +298,38 @@ const Home: FC = () => {
             }, 1000)
         }
     }, [db])
+
+    // Check if at least one measure is complete to show the close button
+    useEffect(() => {
+        const checkMeasureCompletion = async () => {
+            if (!processId || !processStepId || !userId) {
+                setHasCompletedMeasure(false)
+                return
+            }
+
+            setIsCheckingMeasures(true)
+            try {
+                const hasCompleted = await hasAtLeastOneMeasureComplete(
+                    processId,
+                    processStepId,
+                    userId,
+                )
+                setHasCompletedMeasure(hasCompleted)
+            } catch (error) {
+                console.error('Error checking measure completion:', error)
+                setHasCompletedMeasure(false)
+            } finally {
+                setIsCheckingMeasures(false)
+            }
+        }
+
+        checkMeasureCompletion()
+
+        // Refresh the check periodically (every 30 seconds)
+        const interval = setInterval(checkMeasureCompletion, 30000)
+
+        return () => clearInterval(interval)
+    }, [processId, processStepId, userId])
 
     // Refresh when navigating back to projects list
     // DISABLED: This was causing PouchDB errors when navigating back from canceled projects
@@ -939,6 +980,36 @@ const Home: FC = () => {
         setSelectedProjectToDelete('')
     }
 
+    const handleCloseStepClick = () => {
+        setShowCloseStepConfirmation(true)
+    }
+
+    const cancelCloseStep = () => {
+        setShowCloseStepConfirmation(false)
+    }
+
+    const confirmCloseStep = async () => {
+        if (!processId || !processStepId || !userId) {
+            console.error('Missing required identifiers to close step')
+            setShowCloseStepConfirmation(false)
+            return
+        }
+
+        try {
+            await closeProcessStepWithPartialMeasuresComplete(
+                processId,
+                processStepId,
+                userId,
+            )
+            setShowCloseStepConfirmation(false)
+            // Optionally show success message or refresh page
+            alert('Process step closed successfully.')
+        } catch (error) {
+            console.error('Error closing process step:', error)
+            alert('Failed to close process step. Please try again.')
+        }
+    }
+
     const editAddressDetails = (projectID: string) => {
         navigate('app/' + projectID, { replace: true })
     }
@@ -1024,6 +1095,25 @@ const Home: FC = () => {
 
     return (
         <>
+            {/* Close Process Step Button - Top Right */}
+            {hasCompletedMeasure && processId && processStepId && userId && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: '20px',
+                        right: '20px',
+                        zIndex: 1000,
+                    }}
+                >
+                    <Button
+                        variant="primary"
+                        onClick={handleCloseStepClick}
+                        disabled={isCheckingMeasures}
+                    >
+                        Close Process Step
+                    </Button>
+                </div>
+            )}
             {isHydrating ? (
                 <div
                     className="d-flex justify-content-center align-items-center"
@@ -1141,6 +1231,23 @@ const Home: FC = () => {
                     </Button>
                     <Button variant="danger" onClick={confirmDeleteJob}>
                         Permanently Delete
+                    </Button>
+                </Modal.Footer>
+            </Modal>
+            <Modal show={showCloseStepConfirmation} onHide={cancelCloseStep}>
+                <Modal.Header closeButton>
+                    <Modal.Title>Confirm Close Process Step</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    Are you sure you have completed all the needed forms for all
+                    measures?
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button variant="secondary" onClick={cancelCloseStep}>
+                        Cancel
+                    </Button>
+                    <Button variant="primary" onClick={confirmCloseStep}>
+                        Confirm
                     </Button>
                 </Modal.Footer>
             </Modal>

@@ -140,12 +140,14 @@ const isImageContainer = (element: HTMLElement): boolean => {
         'photo-report-container',
         'image-container',
         'photo-container',
-        'image-wrapper'
+        'image-wrapper',
     ]
-    
-    return imageContainerClasses.some(className => 
-        element.classList.contains(className)
-    ) || containsImages(element)
+
+    return (
+        imageContainerClasses.some(className =>
+            element.classList.contains(className),
+        ) || containsImages(element)
+    )
 }
 
 /**
@@ -185,19 +187,21 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
 
         // Check if this child contains images or is an image container
         const hasImages = isImageContainer(child)
-        
+
         // For image containers, we need to be more conservative about chunking
-        const effectiveMaxHeight = hasImages ? maxChunkHeight * 0.8 : maxChunkHeight
-        
+        const effectiveMaxHeight = hasImages
+            ? maxChunkHeight * 0.8
+            : maxChunkHeight
+
         // If this child would exceed the max height or width and we have a current chunk, start a new chunk
         // For image containers, always start a new chunk if they won't fit
-        const shouldStartNewChunk = (
-            (currentChunkHeight + childHeight > effectiveMaxHeight ||
+        const shouldStartNewChunk =
+            ((currentChunkHeight + childHeight > effectiveMaxHeight ||
                 childWidth > maxChunkWidth) &&
-            currentChunk
-        ) || (hasImages && currentChunkHeight > 0) // Always start new chunk for images if current chunk has content
+                currentChunk) ||
+            (hasImages && currentChunkHeight > 0) // Always start new chunk for images if current chunk has content
 
-        if (shouldStartNewChunk) {
+        if (shouldStartNewChunk && currentChunk) {
             chunks.push(currentChunk)
             currentChunk = null
             currentChunkHeight = 0
@@ -207,9 +211,10 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
         if (!currentChunk) {
             currentChunk = document.createElement('div')
             currentChunk.className = 'pdf-chunk'
-            
+
             // Enhanced styling for image containers
-            const chunkStyles = hasImages ? `
+            const chunkStyles = hasImages
+                ? `
                 width: 100%;
                 max-width: ${maxChunkWidth}px;
                 min-height: 100px;
@@ -219,7 +224,8 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
                 break-before: auto;
                 overflow: visible;
                 position: relative;
-            ` : `
+            `
+                : `
                 width: 100%;
                 max-width: ${maxChunkWidth}px;
                 min-height: 100px;
@@ -228,7 +234,7 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
                 overflow: visible;
                 position: relative;
             `
-            
+
             currentChunk.style.cssText = chunkStyles
         }
 
@@ -485,7 +491,7 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
         img.style.breakAfter = 'auto'
         img.style.marginTop = '10px'
         img.style.marginBottom = '5px'
-        
+
         // Additional CSS properties to prevent image splitting
         img.style.display = 'block'
         img.style.float = 'none'

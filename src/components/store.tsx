@@ -787,6 +787,93 @@ export const closeProcessStepIfAllMeasuresComplete = async (
     }
 }
 
+/**
+ * Closes the process step when at least one measure is complete
+ * This is a manual action triggered by the user
+ */
+export const closeProcessStepWithPartialMeasuresComplete = async (
+    processId: string | null,
+    processStepId: string | null,
+    userId: string | null,
+): Promise<void> => {
+    if (!processId || !processStepId) {
+        console.warn('Missing required identifiers.')
+        return
+    }
+
+    try {
+        const closeRes = await fetch(
+            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/condition`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-user-id': userId ?? '',
+                },
+                body: JSON.stringify({ condition: 'CLOSED' }),
+            },
+        )
+
+        if (!closeRes.ok) {
+            const errorBody = await closeRes.text()
+            console.error('Failed to close step:', errorBody)
+            throw new Error('Failed to close process step')
+        } else {
+            console.log('Process step closed successfully.')
+        }
+    } catch (error) {
+        console.error('Error closing process step:', error)
+        throw error
+    }
+}
+
+/**
+ * Checks if at least one measure has been completed
+ */
+export const hasAtLeastOneMeasureComplete = async (
+    processId: string | null,
+    processStepId: string | null,
+    userId: string | null,
+): Promise<boolean> => {
+    if (!processId || !processStepId) {
+        console.warn('Missing required identifiers.')
+        return false
+    }
+
+    try {
+        const formDataRes = await fetch(
+            `${REACT_APP_VAPORCORE_URL}/api/process/${processId}/step/${processStepId}/form-data?user_id=${userId}`,
+            {
+                method: 'GET',
+            },
+        )
+
+        if (!formDataRes.ok) {
+            console.error('Failed to fetch form data')
+            return false
+        }
+
+        const formJson = await formDataRes.json()
+        const formData = formJson?.data ?? {}
+        const actualMeasures = formData?.measures || []
+
+        // Check if at least one measure has completed jobs
+        const hasCompletedMeasure = actualMeasures.some(
+            (actual: any) =>
+                Array.isArray(actual.jobs) &&
+                actual.jobs.length > 0 &&
+                actual.jobs.some(
+                    (job: any) => job.status?.toLowerCase() === 'completed',
+                ),
+        )
+
+        return hasCompletedMeasure
+    } catch (error) {
+        console.error('Error checking measure completion:', error)
+        return false
+    }
+}
+
 export async function saveProjectToRDS({
     userId,
     processStepId,
