@@ -156,7 +156,7 @@ const isImageContainer = (element: HTMLElement): boolean => {
  */
 const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
     const chunks: HTMLElement[] = []
-    const maxChunkHeight = 1200 // Further reduced height per chunk to avoid canvas size limits
+    const maxChunkHeight = 1200 // Canvas height limit
     const maxChunkWidth = 800 // Maximum width per chunk
     const children = Array.from(container.children) as HTMLElement[]
 
@@ -188,18 +188,25 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
         // Check if this child contains images or is an image container
         const hasImages = isImageContainer(child)
 
+        // For image containers, always start a new chunk to ensure they're not split
+        // Also, if an image container is too large, it needs its own chunk
+        const imageTooLarge = hasImages && childHeight > maxChunkHeight * 0.9
+
         // For image containers, we need to be more conservative about chunking
         const effectiveMaxHeight = hasImages
-            ? maxChunkHeight * 0.8
+            ? maxChunkHeight * 0.7 // More conservative for images
             : maxChunkHeight
 
-        // If this child would exceed the max height or width and we have a current chunk, start a new chunk
-        // For image containers, always start a new chunk if they won't fit
+        // Always start a new chunk for images if:
+        // 1. Current chunk has content (to avoid splitting images)
+        // 2. Image is too large to fit in current chunk
+        // 3. Image would exceed max height
         const shouldStartNewChunk =
+            (hasImages && currentChunkHeight > 0) || // Always new chunk for images if current chunk has content
+            imageTooLarge || // Image too large, needs its own chunk
             ((currentChunkHeight + childHeight > effectiveMaxHeight ||
                 childWidth > maxChunkWidth) &&
-                currentChunk) ||
-            (hasImages && currentChunkHeight > 0) // Always start new chunk for images if current chunk has content
+                currentChunk) // Normal chunking logic
 
         if (shouldStartNewChunk && currentChunk) {
             chunks.push(currentChunk)
@@ -211,6 +218,11 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
         if (!currentChunk) {
             currentChunk = document.createElement('div')
             currentChunk.className = 'pdf-chunk'
+            
+            // Mark chunk if it contains images for special handling
+            if (hasImages) {
+                currentChunk.setAttribute('data-has-images', 'true')
+            }
 
             // Enhanced styling for image containers
             const chunkStyles = hasImages
@@ -218,8 +230,8 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
                 width: 100%;
                 max-width: ${maxChunkWidth}px;
                 min-height: 100px;
-                page-break-inside: avoid;
-                break-inside: avoid;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
                 page-break-before: auto;
                 break-before: auto;
                 overflow: visible;
@@ -252,6 +264,9 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
             clonedChild.style.breakBefore = 'auto'
             clonedChild.style.pageBreakAfter = 'auto'
             clonedChild.style.breakAfter = 'auto'
+            clonedChild.style.display = 'block'
+            clonedChild.style.float = 'none'
+            clonedChild.style.clear = 'both'
         }
 
         currentChunk.appendChild(clonedChild)
@@ -282,6 +297,21 @@ const generateChunkPDF = async (
     chunk: HTMLElement,
     chunkIndex: number,
 ): Promise<Blob> => {
+    // Check if this chunk contains images - if so, allow larger canvas
+    const hasImages = chunk.getAttribute('data-has-images') === 'true'
+    
+    // For chunks with images, calculate the actual height needed
+    let canvasHeight = 1200 // Default
+    if (hasImages) {
+        const chunkHeight = Math.max(
+            chunk.offsetHeight || 0,
+            chunk.scrollHeight || 0,
+            chunk.clientHeight || 0,
+        )
+        // Allow up to 2000px for image chunks, but cap at reasonable limit
+        canvasHeight = Math.min(Math.max(chunkHeight * 1.1, 1200), 2000)
+    }
+
     const opt = {
         margin: [15, 15, 15, 15],
         filename: `chunk-${chunkIndex}.pdf`,
@@ -290,7 +320,7 @@ const generateChunkPDF = async (
             quality: 0.98,
         },
         html2canvas: {
-            scale: 1.5, // Reduced scale to avoid canvas size limits
+            scale: hasImages ? 1.2 : 1.5, // Slightly lower scale for images to fit more content
             useCORS: true,
             logging: false,
             allowTaint: true,
@@ -300,7 +330,9 @@ const generateChunkPDF = async (
             backgroundColor: '#ffffff',
             foreignObjectRendering: false,
             width: 800, // Limit canvas width
-            height: 1200, // Limit canvas height
+            height: canvasHeight, // Dynamic height for image chunks
+            windowWidth: 800,
+            windowHeight: canvasHeight,
         },
         jsPDF: {
             unit: 'pt',
@@ -311,10 +343,10 @@ const generateChunkPDF = async (
             autoPaging: 'text',
         },
         pagebreak: {
-            mode: ['css'],
+            mode: ['css', 'legacy'],
             before: '.page-break-before',
             after: '.page-break-after',
-            avoid: '.page-break-avoid',
+            avoid: ['.page-break-avoid', 'img', '.photo-report-container'],
         },
     }
 
