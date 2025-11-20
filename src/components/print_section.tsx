@@ -218,7 +218,7 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
         if (!currentChunk) {
             currentChunk = document.createElement('div')
             currentChunk.className = 'pdf-chunk'
-            
+
             // Mark chunk if it contains images for special handling
             if (hasImages) {
                 currentChunk.setAttribute('data-has-images', 'true')
@@ -299,7 +299,7 @@ const generateChunkPDF = async (
 ): Promise<Blob> => {
     // Check if this chunk contains images - if so, allow larger canvas
     const hasImages = chunk.getAttribute('data-has-images') === 'true'
-    
+
     // For chunks with images, calculate the actual height needed
     let canvasHeight = 1200 // Default
     if (hasImages) {
