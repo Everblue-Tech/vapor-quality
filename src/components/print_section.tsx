@@ -32,9 +32,7 @@ interface GeotagLinkInfo {
  * Extracts all geotag links from the HTML container
  * Geotag links are identified by their href pattern (google.com/maps)
  */
-const extractGeotagLinks = (
-    container: HTMLElement,
-): GeotagLinkInfo[] => {
+const extractGeotagLinks = (container: HTMLElement): GeotagLinkInfo[] => {
     const geotagLinks: GeotagLinkInfo[] = []
     const allLinks = container.querySelectorAll('a[href*="google.com/maps"]')
 
