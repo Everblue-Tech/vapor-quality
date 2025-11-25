@@ -3,7 +3,7 @@ import print from 'print-js'
 import Button from 'react-bootstrap/Button'
 // eslint-disable-next-line
 import html2pdf from 'html2pdf.js'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, PDFName } from 'pdf-lib'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 import { useDB } from '../utilities/database_utils'
 import {
@@ -17,6 +17,177 @@ interface PrintSectionProps {
     label: string
     measureName: string
     jobId?: string
+}
+
+/**
+ * Interface for geotag link information
+ */
+interface GeotagLinkInfo {
+    url: string
+    text: string
+    boundingRect: DOMRect
+}
+
+/**
+ * Extracts all geotag links from the HTML container
+ * Geotag links are identified by their href pattern (google.com/maps)
+ */
+const extractGeotagLinks = (
+    container: HTMLElement,
+): GeotagLinkInfo[] => {
+    const geotagLinks: GeotagLinkInfo[] = []
+    const allLinks = container.querySelectorAll('a[href*="google.com/maps"]')
+
+    allLinks.forEach(link => {
+        const href = link.getAttribute('href')
+        const text = link.textContent?.trim() || ''
+        const rect = link.getBoundingClientRect()
+        const containerRect = container.getBoundingClientRect()
+
+        // Calculate position relative to container
+        const relativeRect = new DOMRect(
+            rect.left - containerRect.left,
+            rect.top - containerRect.top,
+            rect.width,
+            rect.height,
+        )
+
+        if (href && text) {
+            geotagLinks.push({
+                url: href,
+                text,
+                boundingRect: relativeRect,
+            })
+        }
+    })
+
+    return geotagLinks
+}
+
+/**
+ * Adds clickable link annotations to geotags in the PDF
+ * Since html2pdf renders to images, we approximate positions based on DOM coordinates
+ */
+const addGeotagLinksToPDF = async (
+    pdfBlob: Blob,
+    geotagLinks: GeotagLinkInfo[],
+    containerHeight: number,
+    containerWidth: number,
+): Promise<Blob> => {
+    try {
+        const pdfBytes = await pdfBlob.arrayBuffer()
+        const pdfDoc = await PDFDocument.load(pdfBytes)
+        const pages = pdfDoc.getPages()
+
+        if (pages.length === 0 || geotagLinks.length === 0) {
+            return pdfBlob
+        }
+
+        // A4 dimensions in points (pdf-lib uses points)
+        const a4Width = 595.28 // A4 width in points
+        const a4Height = 841.89 // A4 height in points
+        const margin = 15 // Margin in points (matching html2pdf margin)
+
+        // Calculate scale factors
+        // html2pdf uses 800px width, so scale factor accounts for that
+        const scaleX = (a4Width - margin * 2) / containerWidth
+        const scaleY = (a4Height - margin * 2) / containerHeight
+
+        // Process each geotag link
+        for (const geotagLink of geotagLinks) {
+            const { url, boundingRect } = geotagLink
+
+            // Calculate which page this link is on
+            // Assuming content flows vertically and each page is approximately containerHeight / numPages
+            const estimatedPageHeight = containerHeight / pages.length
+            const pageIndex = Math.min(
+                Math.floor(boundingRect.top / estimatedPageHeight),
+                pages.length - 1,
+            )
+
+            const page = pages[pageIndex]
+            const pageSize = page.getSize()
+
+            // Convert DOM coordinates to PDF coordinates
+            // PDF coordinates start from bottom-left, DOM from top-left
+            const relativeTop = boundingRect.top % estimatedPageHeight
+            const pdfX = margin + boundingRect.left * scaleX
+            const pdfY =
+                pageSize.height -
+                margin -
+                relativeTop * scaleY -
+                boundingRect.height * scaleY
+
+            // Ensure coordinates are within page bounds
+            if (
+                pdfX >= 0 &&
+                pdfX <= pageSize.width &&
+                pdfY >= 0 &&
+                pdfY <= pageSize.height &&
+                pdfX + boundingRect.width * scaleX <= pageSize.width
+            ) {
+                // Create link annotation using pdf-lib's annotation API
+                const linkAnnotation = pdfDoc.context.register(
+                    pdfDoc.context.obj({
+                        Type: PDFName.of('Annot'),
+                        Subtype: PDFName.of('Link'),
+                        Rect: [
+                            pdfX,
+                            pdfY,
+                            pdfX + boundingRect.width * scaleX,
+                            pdfY + boundingRect.height * scaleY,
+                        ],
+                        Border: [0, 0, 0],
+                        A: pdfDoc.context.obj({
+                            Type: PDFName.of('Action'),
+                            S: PDFName.of('URI'),
+                            URI: url,
+                        }),
+                    }),
+                )
+
+                // Get or create the Annots array for this page
+                const pageDict = page.node
+                const existingAnnots = pageDict.get(PDFName.of('Annots'))
+
+                // Build array of annotations (existing + new)
+                const annotsToAdd: any[] = []
+                if (existingAnnots) {
+                    // If existingAnnots is already an array, spread it
+                    // Otherwise, add it as a single item
+                    try {
+                        const existingArray = existingAnnots as any
+                        if (Array.isArray(existingArray)) {
+                            annotsToAdd.push(...existingArray)
+                        } else {
+                            annotsToAdd.push(existingAnnots)
+                        }
+                    } catch {
+                        annotsToAdd.push(existingAnnots)
+                    }
+                }
+                annotsToAdd.push(linkAnnotation)
+
+                // Create and set the annotations array
+                const annotsArray = pdfDoc.context.register(
+                    pdfDoc.context.obj(annotsToAdd),
+                )
+                pageDict.set(PDFName.of('Annots'), annotsArray)
+            }
+        }
+
+        // Save the modified PDF
+        const modifiedPdfBytes = await pdfDoc.save()
+        const buffer = new ArrayBuffer(modifiedPdfBytes.byteLength)
+        const view = new Uint8Array(buffer)
+        view.set(modifiedPdfBytes)
+        return new Blob([buffer], {
+            type: 'application/pdf',
+        })
+    } catch (error) {
+        console.warn('Could not add geotag links to PDF:', error)
+        return pdfBlob
+    }
 }
 
 /**
@@ -786,8 +957,15 @@ const PrintSection: FC<PrintSectionProps> = ({
             // ensure all images are fully loaded before PDF generation
             await ensureAllImagesLoaded(wrapper as HTMLElement)
 
+            // Extract geotag links before PDF generation
+            const geotagLinks = extractGeotagLinks(wrapper as HTMLElement)
+            console.log(
+                `Found ${geotagLinks.length} geotag links to add to PDF`,
+            )
+
             // Check if content is too large and needs chunking
             const contentHeight = wrapper.scrollHeight
+            const contentWidth = wrapper.scrollWidth || 800 // Default to 800 if not available
             const maxSingleChunkHeight = 3000 // Height threshold for chunking
 
             let finalPdfBlob: Blob
@@ -969,9 +1147,17 @@ const PrintSection: FC<PrintSectionProps> = ({
             // Remove blank pages from the end of the PDF
             const cleanedPdfBlob = await removeBlankPagesFromPDF(finalPdfBlob)
 
+            // Add clickable geotag links to the PDF
+            const pdfWithLinks = await addGeotagLinksToPDF(
+                cleanedPdfBlob,
+                geotagLinks,
+                contentHeight,
+                contentWidth,
+            )
+
             // create document ID in vapor-core, upload to S3
             vaporCoreDocumentId = await uploadImageToS3AndCreateDocument({
-                file: cleanedPdfBlob,
+                file: pdfWithLinks,
                 userId,
                 applicationId,
                 organizationId,
