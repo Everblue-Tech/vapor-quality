@@ -1,24 +1,25 @@
-import DOEWorkflowHeatPumpWaterHeaterTemplate from './doe_workflow_heat_pump_water_heater.mdx'
-import DOEWorkflowDuctlessHeatPumpTemplate from './doe_workflow_heat_pump_ductless.mdx'
-import DOEWorkflowDuctedHeatPumpTemplate from './doe_workflow_heat_pump_ducted.mdx'
+import DOECombustionApplianceSafetyTests from './doe_workflow_combustion_appliance_safety_tests.mdx'
+import DOEWorkflowAtticAirSealingAndInsulation from './ira_doe_workflow_attic_air_sealing_and_insulation.mdx'
 import DOEWorkflowDuctAirSealTemplate from './ira_doe_workflow_duct_air_sealing_and_insulation.mdx'
+import DOEWorkflowDuctedHeatPumpTemplate from './doe_workflow_heat_pump_ducted.mdx'
+import DOEWorkflowDuctlessHeatPumpTemplate from './doe_workflow_heat_pump_ductless.mdx'
 import DOEWorkflowElectricCookTemplate from './ira_doe_workflow_electric_cooking_appliance.mdx'
-import DOEWorkflowElectricWiringTemplate from './ira_doe_workflow_electric_wiring.mdx'
 import DOEWorkflowElectricLoadServiceTemplate from './ira_doe_workflow_electric_load_service_center.mdx'
-import DOEWorkflowHighEfficiencyGasFurnace from './ira_doe_workflow_high_efficiency_gas_furnace.mdx'
-import DOEWorkflowHighEfficiencyWaterHeater from './ira_doe_workflow_high_efficiency_water_heater.mdx'
-import DOEWorkflowHighEfficiencyModulatingBoiler from './ira_doe_workflow_high_efficiency_modulating_boiler.mdx'
-import DOEWorkflowFullFrameReplacementWindows from './ira_doe_workflow_full_frame_replacement_windows.mdx'
-import DOEWorkflowInsertReplacementWindows from './ira_doe_workflow_insert_replacement_windows.mdx'
+import DOEWorkflowElectricWiringTemplate from './ira_doe_workflow_electric_wiring.mdx'
 import DOEWorkflowFloorAirSealingAndInsulation from './ira_doe_workflow_floor_air_sealing_and_insulation.mdx'
 import DOEWorkflowFoundationAirSealingAndInsulation from './ira_doe_workflow_foundation_wall_air_sealing_and_insulation.mdx'
+import DOEWorkflowFullFrameReplacementWindows from './ira_doe_workflow_full_frame_replacement_windows.mdx'
 import DOEWorkflowHPClothDyer from './ira_doe_workflow_heat_pump_cloth_dryer.mdx'
+import DOEWorkflowHeatPumpWaterHeaterTemplate from './doe_workflow_heat_pump_water_heater.mdx'
+import DOEWorkflowHighEfficiencyGasFurnace from './ira_doe_workflow_high_efficiency_gas_furnace.mdx'
+import DOEWorkflowHighEfficiencyModulatingBoiler from './ira_doe_workflow_high_efficiency_modulating_boiler.mdx'
+import DOEWorkflowHighEfficiencyWaterHeater from './ira_doe_workflow_high_efficiency_water_heater.mdx'
+import DOEWorkflowInsertReplacementWindows from './ira_doe_workflow_insert_replacement_windows.mdx'
+import DOEWorkflowLinearFluorescentToLEDRetrofit from './ira_doe_workflow_linear_fluorescent_to_LED_retrofit.mdx'
 import DOEWorkflowMechanicalVentilation from './ira_doe_workflow_mechanical_ventilation.mdx'
 import DOEWorkflowSlapFoundationExterior from './ira_doe_workflow_slap_foundation_exterior_sealing_and_insulation.mdx'
 import DOEWorkflowWallAirSealingAndInsulation from './ira_doe_workflow_wall_air_sealing_and_insulation_dry_fill.mdx'
-import DOEWorkflowAtticAirSealingAndInsulation from './ira_doe_workflow_attic_air_sealing_and_insulation.mdx'
 import IRADOEWorkflowLimitedAssessment from './ira_doe_workflow_limited_assessment.mdx'
-import DOECombustionApplianceSafetyTests from './doe_workflow_combustion_appliance_safety_tests.mdx'
 
 import { MDXProps } from 'mdx/types'
 
@@ -33,29 +34,37 @@ const templateRegex = /^(?!_)(?!.*_$)[a-z0-9_]{1,64}$/
 
 // Add workflow templates for 'quality-install-tool'
 const templatesConfig: TemplatesConfig = {
+    doe_combustion_appliance_safety_tests: {
+        title: 'Combustion Appliance Safety Testing',
+        template: DOECombustionApplianceSafetyTests,
+    },
     doe_workflow_attic_air_sealing_and_insulation: {
         title: 'Attic Air Sealing and Insulation',
         template: DOEWorkflowAtticAirSealingAndInsulation,
     },
-    doe_combustion_appliance_safety_tests: {
-        title: 'Combustion Appliance Safety Testing',
-        template: DOECombustionApplianceSafetyTests,
+    doe_workflow_central_ducted_split_heat_pump: {
+        title: 'Heat Pump Ducted',
+        template: DOEWorkflowDuctedHeatPumpTemplate,
     },
     doe_workflow_duct_air_sealing: {
         title: 'Duct Air Sealing and Insulation',
         template: DOEWorkflowDuctAirSealTemplate,
     },
+    doe_workflow_ductless_heat_pump: {
+        title: 'Heat Pump Ductless',
+        template: DOEWorkflowDuctlessHeatPumpTemplate,
+    },
     doe_workflow_electric_cooking_appliances: {
         title: 'Electric Cooking Appliances',
         template: DOEWorkflowElectricCookTemplate,
     },
-    doe_workflow_electric_wiring: {
-        title: 'Electric Wiring',
-        template: DOEWorkflowElectricWiringTemplate,
-    },
     doe_workflow_electric_load_service_center: {
         title: 'Electric Load Service Center',
         template: DOEWorkflowElectricLoadServiceTemplate,
+    },
+    doe_workflow_electric_wiring: {
+        title: 'Electric Wiring',
+        template: DOEWorkflowElectricWiringTemplate,
     },
     doe_workflow_floor_airsealing_and_insulation: {
         title: 'Floor Air Sealing and Insulation Above Unconditioned Space',
@@ -72,14 +81,6 @@ const templatesConfig: TemplatesConfig = {
     doe_workflow_heat_pump_cloth_dryer: {
         title: 'Heat Pump Clothes Dryer',
         template: DOEWorkflowHPClothDyer,
-    },
-    doe_workflow_central_ducted_split_heat_pump: {
-        title: 'Heat Pump Ducted',
-        template: DOEWorkflowDuctedHeatPumpTemplate,
-    },
-    doe_workflow_ductless_heat_pump: {
-        title: 'Heat Pump Ductless',
-        template: DOEWorkflowDuctlessHeatPumpTemplate,
     },
     doe_workflow_heat_pump_water_heater: {
         title: 'Heat Pump Water Heater',
@@ -100,6 +101,10 @@ const templatesConfig: TemplatesConfig = {
     doe_workflow_insert_replacement_windows: {
         title: 'Insert Replacement Windows',
         template: DOEWorkflowInsertReplacementWindows,
+    },
+    doe_workflow_linear_fluorescent_to_led_retrofit: {
+        title: 'Linear Fluorescent to LED Retrofit',
+        template: DOEWorkflowLinearFluorescentToLEDRetrofit,
     },
     doe_workflow_mechanical_ventilation: {
         title: 'Mechanical Ventilation',
@@ -127,6 +132,9 @@ export const measureTypeMapping: Record<string, string[]> = {
     cooling_equipment: ['Heat Pump Ducted', 'Heat Pump Ductless'],
     duct_insulation: ['Duct Air Sealing and Insulation'],
     duct_sealing: ['Duct Air Sealing and Insulation'],
+    electrical_panel: ['Electric Load Service Center'],
+    electric_cooking_appliance: ['Electric Cooking Appliances'],
+    electric_wiring: ['Electric Wiring'],
     floor_insulation: [
         'Floor Air Sealing and Insulation Above Unconditioned Space',
     ],
@@ -136,14 +144,6 @@ export const measureTypeMapping: Record<string, string[]> = {
         'Heat Pump Ductless',
         'High Efficiency Gas Furnace',
     ],
-    ventilation: ['Mechanical Ventilation'],
-    wall_insulation: ['Wall Air Sealing and Insulation (Drill and Fill)'],
-    water_heater: ['Heat Pump Water Heater', 'High Efficiency Water Heater'],
-    window_attachment: ['Insert Replacement Windows'],
-    window_replacement: ['Full Frame Replacement Windows'],
-    electrical_panel: ['Electric Load Service Center'],
-    electric_cooking_appliance: ['Electric Cooking Appliances'],
-    electric_wiring: ['Electric Wiring'],
     heat_pump_clothes_dryer: ['Heat Pump Clothes Dryer'],
     heat_pump_for_space_heating_or_cooling: [
         'Heat Pump Ducted',
@@ -157,6 +157,22 @@ export const measureTypeMapping: Record<string, string[]> = {
         'Foundation Wall Air Sealing and Insulation',
         'Mechanical Ventilation',
     ],
+    lighting: ['Linear Fluorescent to LED Retrofit'],
+    motors: ['Heat Pump Water Heater', 'High Efficiency Modulating Boiler'],
+    pipe_insulation: ['Heat Pump Water Heater'],
+    pumps: ['Heat Pump Water Heater', 'High Efficiency Modulating Boiler'],
+    roof_insulation: ['Attic Air Sealing and Insulation'],
+    thermostats: [
+        'Heat Pump Ducted',
+        'Heat Pump Ductless',
+        'Heat Pump Water Heater',
+    ],
+    variable_frequency_drives: ['High Efficiency Modulating Boiler'],
+    ventilation: ['Mechanical Ventilation'],
+    wall_insulation: ['Wall Air Sealing and Insulation (Drill and Fill)'],
+    water_heater: ['Heat Pump Water Heater', 'High Efficiency Water Heater'],
+    window_attachment: ['Insert Replacement Windows'],
+    window_replacement: ['Full Frame Replacement Windows'],
 }
 
 export const mapMeasuresToTemplateValues = (inputs: string[]): string[] => {
