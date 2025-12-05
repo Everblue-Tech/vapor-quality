@@ -3,9 +3,7 @@
         "browser": true,
         "es2021": true
     },
-    "extends": [
-        "prettier"
-    ],
+    "extends": ["prettier"],
     "ignorePatterns": ["server/"],
     "overrides": [],
     "parserOptions": {
@@ -17,11 +15,7 @@
             "experimentalObjectRestSpread": true
         }
     },
-    "plugins": [
-        "react",
-        "prettier",
-        "typescript"
-    ],
+    "plugins": ["react", "prettier", "typescript"],
     "rules": {
         "prettier/prettier": "error"
     },

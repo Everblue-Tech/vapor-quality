@@ -477,8 +477,8 @@ const generateChunkPDF = async (
             chunk.scrollHeight || 0,
             chunk.clientHeight || 0,
         )
-        // Allow up to 2000px for image chunks, but cap at reasonable limit
-        canvasHeight = Math.min(Math.max(chunkHeight * 1.1, 1200), 2000)
+        // For image chunks, use the actual height + padding, no cap to prevent splitting
+        canvasHeight = Math.max(chunkHeight * 1.2, 1200)
     }
 
     const opt = {
@@ -509,7 +509,7 @@ const generateChunkPDF = async (
             orientation: 'portrait',
             compress: false,
             putOnlyUsedFonts: true,
-            autoPaging: 'text',
+            autoPaging: hasImages ? false : 'text', // Disable autoPaging for image chunks to prevent splitting
         },
         pagebreak: {
             mode: ['css', 'legacy'],
@@ -656,18 +656,18 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
 
             // A4 page dimensions in points (595 x 842)
             const maxPageWidth = 500 // Leave some margin
-            const maxPageHeight = 700 // Leave some margin
+            // Remove height constraint for images - let them use full page height or more
+            // This prevents images from being split across pages
+            const maxPageHeight = Infinity // No height limit to prevent splitting
 
-            // Check if image would overflow the page
-            if (targetWidth > maxPageWidth || targetHeight > maxPageHeight) {
-                // Scale down proportionally to fit within page bounds
+            // Check if image would overflow the page width only
+            if (targetWidth > maxPageWidth) {
+                // Scale down proportionally to fit within page width bounds
                 const widthRatio = maxPageWidth / targetWidth
-                const heightRatio = maxPageHeight / targetHeight
-                const scaleRatio = Math.min(widthRatio, heightRatio)
-
-                targetWidth = targetWidth * scaleRatio
-                targetHeight = targetHeight * scaleRatio
+                targetWidth = targetWidth * widthRatio
+                targetHeight = targetHeight * widthRatio
             }
+            // Don't constrain height - let large images use multiple pages if needed
 
             // Set dimensions to ensure full image display and visibility
             img.style.width = `${targetWidth}pt`
@@ -730,6 +730,24 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
         containerElement.style.overflow = 'visible'
         containerElement.style.maxHeight = 'none'
         containerElement.style.height = 'auto'
+
+        // Wrap images in a container that prevents page breaks
+        const images = containerElement.querySelectorAll('img')
+        images.forEach(img => {
+            // Create a wrapper div if it doesn't exist
+            if (
+                !img.parentElement?.classList.contains('image-no-break-wrapper')
+            ) {
+                const wrapper = document.createElement('div')
+                wrapper.className = 'image-no-break-wrapper'
+                wrapper.style.pageBreakInside = 'avoid'
+                wrapper.style.breakInside = 'avoid'
+                wrapper.style.display = 'inline-block'
+                wrapper.style.width = '100%'
+                img.parentNode?.insertBefore(wrapper, img)
+                wrapper.appendChild(img)
+            }
+        })
 
         // Aggressive page break prevention for photo containers
         containerElement.style.pageBreakInside = 'avoid'
@@ -1097,6 +1115,16 @@ const PrintSection: FC<PrintSectionProps> = ({
                 console.log(
                     `Content height (${contentHeight}px) is within limits, using single PDF generation`,
                 )
+
+                // Check if content has images
+                const hasImages = isImageContainer(wrapper as HTMLElement)
+
+                // Calculate canvas height - allow more for images
+                let canvasHeight = 1200
+                if (hasImages) {
+                    canvasHeight = Math.max(contentHeight * 1.2, 1200)
+                }
+
                 // Use the original single PDF generation for smaller content
                 const opt = {
                     margin: [15, 15, 15, 15], // Balanced margins
@@ -1106,7 +1134,7 @@ const PrintSection: FC<PrintSectionProps> = ({
                         quality: 0.98, // High quality but stable
                     },
                     html2canvas: {
-                        scale: 1.5, // Reduced scale to avoid canvas size limits
+                        scale: hasImages ? 1.2 : 1.5, // Lower scale for images
                         useCORS: true,
                         logging: false, // Disable logging for cleaner output
                         allowTaint: true, // Allow cross-origin images
@@ -1116,7 +1144,9 @@ const PrintSection: FC<PrintSectionProps> = ({
                         backgroundColor: '#ffffff', // Ensure white background
                         foreignObjectRendering: false, // Keep disabled for stability
                         width: 800, // Limit canvas width
-                        height: 1200, // Limit canvas height
+                        height: canvasHeight, // Dynamic height for images
+                        windowWidth: 800,
+                        windowHeight: canvasHeight,
                     },
                     jsPDF: {
                         unit: 'pt',
@@ -1124,13 +1154,18 @@ const PrintSection: FC<PrintSectionProps> = ({
                         orientation: 'portrait',
                         compress: false, // Disable PDF compression for better image quality
                         putOnlyUsedFonts: true, // Optimize font usage
-                        autoPaging: 'text', // Better text flow
+                        autoPaging: hasImages ? false : 'text', // Disable autoPaging for images to prevent splitting
                     },
                     pagebreak: {
                         mode: ['css'], // Simplified page break mode
                         before: '.page-break-before',
                         after: '.page-break-after',
-                        avoid: '.page-break-avoid',
+                        avoid: [
+                            '.page-break-avoid',
+                            'img',
+                            '.photo-report-container',
+                            '.image-no-break-wrapper',
+                        ],
                     },
                 }
 
