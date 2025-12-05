@@ -1286,7 +1286,7 @@ const PrintSection: FC<PrintSectionProps> = ({
 
             {submissionStatus === 'success' && (
                 <p style={{ color: 'green', marginTop: '1rem' }}>
-                    Report submitted successfully!
+                    Report Submitted Successfully
                 </p>
             )}
 

@@ -220,7 +220,7 @@ const JobList: React.FC = () => {
                     closeModal={closeAddModal}
                     onSubmit={handleAddJob}
                     validateInput={validateInput}
-                    title="Enter new installation name"
+                    title="Enter Installation Name"
                     okButton="Add"
                     value=""
                 />
@@ -247,9 +247,28 @@ const JobList: React.FC = () => {
                         key={jobID._id}
                         to={`/app/${projectId}/${workflowName}/${jobID._id}`}
                     >
-                        <ListGroup.Item action={true} key={jobID._id}>
-                            {jobID.metadata_.doc_name}
-                            <span className="icon-container">
+                        <ListGroup.Item
+                            action={true}
+                            key={jobID._id}
+                            className="jobs-list-item"
+                        >
+                            <div
+                                style={{
+                                    flex: 1,
+                                    minWidth: 0,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                {jobID.metadata_.doc_name}
+                            </div>
+                            <div
+                                style={{
+                                    flex: '0 0 auto',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
                                 <Button
                                     variant="light"
                                     onClick={event => {
@@ -277,7 +296,7 @@ const JobList: React.FC = () => {
                                 >
                                     <TfiTrash size={22} />
                                 </Button>
-                            </span>
+                            </div>
                         </ListGroup.Item>
                     </LinkContainerWrapper>
                     <StringInputModal
@@ -290,7 +309,7 @@ const JobList: React.FC = () => {
                         }}
                         onSubmit={input => handleRenameJob(input, jobID._id)}
                         validateInput={validateInput}
-                        title="Enter new installation name"
+                        title="Enter Installation Name"
                         okButton="Rename"
                         value={jobID.metadata_.doc_name}
                     />
