@@ -655,25 +655,31 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
             let targetHeight = img.naturalHeight * scaleFactor
 
             // A4 page dimensions in points (595 x 842)
-            const maxPageWidth = 500 // Leave some margin
-            // Remove height constraint for images - let them use full page height or more
-            // This prevents images from being split across pages
-            const maxPageHeight = Infinity // No height limit to prevent splitting
+            // Leave margins: 15pt on each side = 30pt total
+            const maxPageWidth = 565 // 595 - 30 (margins)
+            const maxPageHeight = 812 // 842 - 30 (margins) - leave room for metadata
 
-            // Check if image would overflow the page width only
-            if (targetWidth > maxPageWidth) {
-                // Scale down proportionally to fit within page width bounds
+            // Check if image would overflow the page dimensions
+            // Scale down proportionally to fit within page bounds while preserving aspect ratio
+            if (targetWidth > maxPageWidth || targetHeight > maxPageHeight) {
                 const widthRatio = maxPageWidth / targetWidth
-                targetWidth = targetWidth * widthRatio
-                targetHeight = targetHeight * widthRatio
+                const heightRatio = maxPageHeight / targetHeight
+                // Use the smaller ratio to ensure image fits both width and height
+                const scaleRatio = Math.min(widthRatio, heightRatio)
+
+                targetWidth = targetWidth * scaleRatio
+                targetHeight = targetHeight * scaleRatio
+
+                console.log(
+                    `Scaling down image from ${img.naturalWidth}x${img.naturalHeight} to ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt`,
+                )
             }
-            // Don't constrain height - let large images use multiple pages if needed
 
             // Set dimensions to ensure full image display and visibility
             img.style.width = `${targetWidth}pt`
             img.style.height = `${targetHeight}pt`
-            img.style.maxWidth = 'none'
-            img.style.maxHeight = 'none'
+            img.style.maxWidth = `${maxPageWidth}pt`
+            img.style.maxHeight = `${maxPageHeight}pt`
             img.style.minWidth = 'auto'
             img.style.minHeight = 'auto'
             img.style.objectFit = 'contain'
@@ -704,7 +710,7 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
         img.crossOrigin = 'anonymous'
     })
 
-    // Check photo containers and add page breaks if they're too large
+    // Check photo containers and ensure they fit on a page
     const largePhotoContainers = container.querySelectorAll(
         '.photo-report-container',
     )
@@ -712,11 +718,41 @@ const preprocessImagesForPDF = (container: HTMLElement) => {
         const containerElement = container as HTMLElement
         const rect = containerElement.getBoundingClientRect()
 
-        // If photo container is taller than 500px, force page break before it
-        if (rect.height > 500) {
-            containerElement.style.pageBreakBefore = 'always'
-            containerElement.style.breakBefore = 'page'
-            console.log('Adding page break before large photo container')
+        // A4 page height in pixels (approximately 1123px at 96dpi)
+        // Leave room for margins and metadata
+        const maxContainerHeight = 800 // pixels
+
+        // If photo container is taller than max height, scale down the image inside
+        if (rect.height > maxContainerHeight) {
+            const images = containerElement.querySelectorAll('img')
+            images.forEach(img => {
+                const imgElement = img as HTMLImageElement
+                if (
+                    imgElement.naturalWidth > 0 &&
+                    imgElement.naturalHeight > 0
+                ) {
+                    // Calculate scale to fit container within max height
+                    const containerHeight = rect.height
+                    const scaleRatio = maxContainerHeight / containerHeight
+
+                    // Get current image dimensions
+                    const imgCurrentWidth =
+                        imgElement.offsetWidth || imgElement.naturalWidth
+                    const imgCurrentHeight =
+                        imgElement.offsetHeight || imgElement.naturalHeight
+
+                    // Scale down proportionally
+                    const newWidth = imgCurrentWidth * scaleRatio
+                    const newHeight = imgCurrentHeight * scaleRatio
+
+                    imgElement.style.width = `${newWidth}px`
+                    imgElement.style.height = `${newHeight}px`
+
+                    console.log(
+                        `Scaling down photo container image from ${imgCurrentWidth}x${imgCurrentHeight} to ${newWidth.toFixed(0)}x${newHeight.toFixed(0)}px`,
+                    )
+                }
+            })
         }
     })
 
