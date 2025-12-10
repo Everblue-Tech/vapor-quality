@@ -57,7 +57,6 @@ app.get('/config', async (req, res) => {
                 REACT_APP_VAPORFLOW_URL: process.env.REACT_APP_VAPORFLOW_URL,
             })
         }
-
     } catch (err) {
         console.error('Error fetching config:', err)
         res.status(500).json({ error: 'Failed to load config' })

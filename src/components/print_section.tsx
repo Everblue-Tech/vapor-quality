@@ -564,23 +564,70 @@ const ensureAllImagesLoaded = async (container: HTMLElement): Promise<void> => {
     const imagePromises: Promise<void>[] = []
 
     images.forEach(img => {
-        if (img.complete) {
-            console.log('Image already loaded:', img.src)
+        const imgElement = img as HTMLImageElement
+
+        // Check if image has valid dimensions
+        const hasValidDimensions =
+            imgElement.naturalWidth > 0 && imgElement.naturalHeight > 0
+
+        if (imgElement.complete && hasValidDimensions) {
+            console.log(
+                `Image already loaded with dimensions ${imgElement.naturalWidth}x${imgElement.naturalHeight}:`,
+                imgElement.src.substring(0, 100),
+            )
             return
         }
 
         const promise = new Promise<void>(resolve => {
-            img.onload = () => {
-                console.log('Image loaded successfully:', img.src)
-                // Force high-quality rendering after load
-                img.style.imageRendering = 'high-quality'
-                img.style.imageRendering = '-webkit-optimize-contrast'
-                img.style.imageRendering = 'crisp-edges'
+            const timeout = setTimeout(() => {
+                console.warn(
+                    `Image load timeout (${imgElement.naturalWidth}x${imgElement.naturalHeight}):`,
+                    imgElement.src.substring(0, 100),
+                )
+                resolve() // Continue even if timeout
+            }, 10000) // Increased timeout for large images
+
+            imgElement.onload = () => {
+                clearTimeout(timeout)
+                if (
+                    imgElement.naturalWidth > 0 &&
+                    imgElement.naturalHeight > 0
+                ) {
+                    console.log(
+                        `Image loaded successfully with dimensions ${imgElement.naturalWidth}x${imgElement.naturalHeight}:`,
+                        imgElement.src.substring(0, 100),
+                    )
+                    // Force high-quality rendering after load
+                    imgElement.style.imageRendering = 'high-quality'
+                    imgElement.style.imageRendering =
+                        '-webkit-optimize-contrast'
+                    imgElement.style.imageRendering = 'crisp-edges'
+                } else {
+                    console.warn(
+                        'Image loaded but has invalid dimensions:',
+                        imgElement.src.substring(0, 100),
+                    )
+                }
                 resolve()
             }
-            img.onerror = () => {
-                console.warn('Image failed to load:', img.src)
+            imgElement.onerror = () => {
+                clearTimeout(timeout)
+                console.error(
+                    'Image failed to load:',
+                    imgElement.src.substring(0, 100),
+                )
                 resolve() // Continue even if image fails to load
+            }
+
+            // For blob URLs, ensure they're properly loaded
+            if (imgElement.src.startsWith('blob:')) {
+                // Blob URLs should load immediately, but verify
+                if (!imgElement.complete) {
+                    // Force reload
+                    const currentSrc = imgElement.src
+                    imgElement.src = ''
+                    imgElement.src = currentSrc
+                }
             }
         })
         imagePromises.push(promise)
@@ -589,14 +636,32 @@ const ensureAllImagesLoaded = async (container: HTMLElement): Promise<void> => {
     if (imagePromises.length > 0) {
         console.log(`Waiting for ${imagePromises.length} images to load...`)
         // Wait for all images to load with a timeout
-        await Promise.race([
-            Promise.all(imagePromises),
-            new Promise(resolve => setTimeout(resolve, 5000)), // Balanced timeout
-        ])
+        await Promise.all(imagePromises)
         console.log('Image loading complete')
 
-        // Brief delay to ensure images are fully rendered
-        await new Promise(resolve => setTimeout(resolve, 500))
+        // Additional delay to ensure images are fully rendered and dimensions are set
+        await new Promise(resolve => setTimeout(resolve, 1000))
+
+        // Verify all images have dimensions
+        let imagesWithoutDimensions = 0
+        images.forEach(img => {
+            const imgElement = img as HTMLImageElement
+            if (
+                imgElement.naturalWidth === 0 ||
+                imgElement.naturalHeight === 0
+            ) {
+                imagesWithoutDimensions++
+                console.error(
+                    `Image still has no dimensions after load: ${imgElement.naturalWidth}x${imgElement.naturalHeight}`,
+                    imgElement.src.substring(0, 100),
+                )
+            }
+        })
+        if (imagesWithoutDimensions > 0) {
+            console.warn(
+                `${imagesWithoutDimensions} images still missing dimensions`,
+            )
+        }
     } else {
         console.log('No images to load')
     }
@@ -630,85 +695,148 @@ const addStrategicPageBreaks = (container: HTMLElement): void => {
 /**
  * Pre-processes images in the PDF container to improve quality and fix metadata cutoff
  */
-const preprocessImagesForPDF = (container: HTMLElement) => {
+const preprocessImagesForPDF = async (container: HTMLElement) => {
     // Enhanced preprocessing for better image quality
     const images = container.querySelectorAll('img')
+    const imagePromises: Promise<void>[] = []
+
     images.forEach(img => {
-        // High-quality image rendering settings
-        img.style.imageRendering = 'high-quality'
-        img.style.imageRendering = '-webkit-optimize-contrast'
-        img.style.imageRendering = 'crisp-edges'
-        img.style.objectFit = 'contain'
-        img.style.objectPosition = 'center'
-
-        // Remove size constraints that might limit quality
-        img.style.maxWidth = 'none'
-        img.style.maxHeight = 'none'
-        img.style.minWidth = 'none'
-        img.style.minHeight = 'none'
-
-        // Smart image sizing that preserves aspect ratio and fits within bounds
-        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-            // Convert natural dimensions to points (1px ≈ 0.75pt for typical screen density)
-            const scaleFactor = 0.75
-            let targetWidth = img.naturalWidth * scaleFactor
-            let targetHeight = img.naturalHeight * scaleFactor
-
-            // A4 page dimensions in points (595 x 842)
-            // Leave margins: 15pt on each side = 30pt total
-            const maxPageWidth = 565 // 595 - 30 (margins)
-            const maxPageHeight = 812 // 842 - 30 (margins) - leave room for metadata
-
-            // Check if image would overflow the page dimensions
-            // Scale down proportionally to fit within page bounds while preserving aspect ratio
-            if (targetWidth > maxPageWidth || targetHeight > maxPageHeight) {
-                const widthRatio = maxPageWidth / targetWidth
-                const heightRatio = maxPageHeight / targetHeight
-                // Use the smaller ratio to ensure image fits both width and height
-                const scaleRatio = Math.min(widthRatio, heightRatio)
-
-                targetWidth = targetWidth * scaleRatio
-                targetHeight = targetHeight * scaleRatio
-
-                console.log(
-                    `Scaling down image from ${img.naturalWidth}x${img.naturalHeight} to ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt`,
-                )
-            }
-
-            // Set dimensions to ensure full image display and visibility
-            img.style.width = `${targetWidth}pt`
-            img.style.height = `${targetHeight}pt`
-            img.style.maxWidth = `${maxPageWidth}pt`
-            img.style.maxHeight = `${maxPageHeight}pt`
-            img.style.minWidth = 'auto'
-            img.style.minHeight = 'auto'
+        const processImage = async () => {
+            // High-quality image rendering settings
+            img.style.imageRendering = 'high-quality'
+            img.style.imageRendering = '-webkit-optimize-contrast'
+            img.style.imageRendering = 'crisp-edges'
             img.style.objectFit = 'contain'
             img.style.objectPosition = 'center'
-            img.style.visibility = 'visible'
+
+            // Remove size constraints that might limit quality
+            img.style.maxWidth = 'none'
+            img.style.maxHeight = 'none'
+            img.style.minWidth = 'none'
+            img.style.minHeight = 'none'
+
+            // Smart image sizing that preserves aspect ratio and fits within bounds
+            // Wait for image to load if dimensions aren't available yet
+            if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+                console.warn(
+                    `Image has no dimensions yet (${img.naturalWidth}x${img.naturalHeight}), waiting for load:`,
+                    img.src.substring(0, 100),
+                )
+                // Force image to load by setting src again or waiting
+                if (img.complete === false) {
+                    await new Promise<void>(resolve => {
+                        const timeout = setTimeout(() => {
+                            console.warn(
+                                'Image load timeout:',
+                                img.src.substring(0, 100),
+                            )
+                            resolve()
+                        }, 3000)
+                        img.onload = () => {
+                            clearTimeout(timeout)
+                            console.log(
+                                'Image loaded with dimensions:',
+                                img.src.substring(0, 100),
+                            )
+                            resolve()
+                        }
+                        img.onerror = () => {
+                            clearTimeout(timeout)
+                            console.error(
+                                'Image failed to load:',
+                                img.src.substring(0, 100),
+                            )
+                            resolve()
+                        }
+                        // Trigger reload if needed
+                        if (img.src) {
+                            const currentSrc = img.src
+                            img.src = ''
+                            img.src = currentSrc
+                        }
+                    })
+                }
+            }
+
+            if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                // Convert natural dimensions to points (1px ≈ 0.75pt for typical screen density)
+                const scaleFactor = 0.75
+                let targetWidth = img.naturalWidth * scaleFactor
+                let targetHeight = img.naturalHeight * scaleFactor
+
+                // A4 page dimensions in points (595 x 842)
+                // Leave margins: 15pt on each side = 30pt total
+                const maxPageWidth = 565 // 595 - 30 (margins)
+                const maxPageHeight = 812 // 842 - 30 (margins) - leave room for metadata
+
+                // Check if image would overflow the page dimensions
+                // Scale down proportionally to fit within page bounds while preserving aspect ratio
+                if (
+                    targetWidth > maxPageWidth ||
+                    targetHeight > maxPageHeight
+                ) {
+                    const widthRatio = maxPageWidth / targetWidth
+                    const heightRatio = maxPageHeight / targetHeight
+                    // Use the smaller ratio to ensure image fits both width and height
+                    const scaleRatio = Math.min(widthRatio, heightRatio)
+
+                    targetWidth = targetWidth * scaleRatio
+                    targetHeight = targetHeight * scaleRatio
+
+                    console.log(
+                        `Scaling down image from ${img.naturalWidth}x${img.naturalHeight} to ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt`,
+                    )
+                }
+
+                // Set dimensions to ensure full image display and visibility
+                img.style.width = `${targetWidth}pt`
+                img.style.height = `${targetHeight}pt`
+                img.style.maxWidth = `${maxPageWidth}pt`
+                img.style.maxHeight = `${maxPageHeight}pt`
+                img.style.minWidth = 'auto'
+                img.style.minHeight = 'auto'
+                img.style.objectFit = 'contain'
+                img.style.objectPosition = 'center'
+                img.style.visibility = 'visible'
+                img.style.display = 'block'
+                img.style.opacity = '1'
+            } else {
+                console.error(
+                    `Image still has no dimensions after waiting: ${img.naturalWidth}x${img.naturalHeight}`,
+                    img.src.substring(0, 100),
+                )
+                // Set fallback dimensions to ensure image is visible
+                img.style.width = 'auto'
+                img.style.height = 'auto'
+                img.style.maxWidth = '565pt'
+                img.style.maxHeight = '812pt'
+            }
+
+            // Ensure images don't break across pages and get proper spacing
+            img.style.pageBreakInside = 'avoid'
+            img.style.breakInside = 'avoid'
+            img.style.pageBreakBefore = 'auto'
+            img.style.breakBefore = 'auto'
+            img.style.pageBreakAfter = 'auto'
+            img.style.breakAfter = 'auto'
+            img.style.marginTop = '10px'
+            img.style.marginBottom = '5px'
+
+            // Additional CSS properties to prevent image splitting
             img.style.display = 'block'
-            img.style.opacity = '1'
+            img.style.float = 'none'
+            img.style.clear = 'both'
+            img.style.orphans = '3'
+            img.style.widows = '3'
+
+            // Force high-quality rendering
+            img.crossOrigin = 'anonymous'
         }
-
-        // Ensure images don't break across pages and get proper spacing
-        img.style.pageBreakInside = 'avoid'
-        img.style.breakInside = 'avoid'
-        img.style.pageBreakBefore = 'auto'
-        img.style.breakBefore = 'auto'
-        img.style.pageBreakAfter = 'auto'
-        img.style.breakAfter = 'auto'
-        img.style.marginTop = '10px'
-        img.style.marginBottom = '5px'
-
-        // Additional CSS properties to prevent image splitting
-        img.style.display = 'block'
-        img.style.float = 'none'
-        img.style.clear = 'both'
-        img.style.orphans = '3'
-        img.style.widows = '3'
-
-        // Force high-quality rendering
-        img.crossOrigin = 'anonymous'
+        imagePromises.push(processImage())
     })
+
+    // Wait for all images to be processed
+    await Promise.all(imagePromises)
 
     // Check photo containers and ensure they fit on a page
     const largePhotoContainers = container.querySelectorAll(
@@ -1003,11 +1131,12 @@ const PrintSection: FC<PrintSectionProps> = ({
                 return
             }
 
-            // preprocess images for better PDF quality
-            preprocessImagesForPDF(wrapper as HTMLElement)
-
-            // ensure all images are fully loaded before PDF generation
+            // ensure all images are fully loaded BEFORE preprocessing
+            // This is critical - preprocessing needs naturalWidth/naturalHeight
             await ensureAllImagesLoaded(wrapper as HTMLElement)
+
+            // preprocess images for better PDF quality (after they're loaded)
+            await preprocessImagesForPDF(wrapper as HTMLElement)
 
             // Extract geotag links before PDF generation
             const geotagLinks = extractGeotagLinks(wrapper as HTMLElement)
@@ -1038,9 +1167,10 @@ const PrintSection: FC<PrintSectionProps> = ({
                             `Generating PDF for chunk ${i + 1}/${chunks.length}`,
                         )
 
-                        // Preprocess images for this chunk
-                        preprocessImagesForPDF(chunks[i])
+                        // Ensure images are loaded BEFORE preprocessing
                         await ensureAllImagesLoaded(chunks[i])
+                        // Preprocess images for this chunk (after they're loaded)
+                        await preprocessImagesForPDF(chunks[i])
 
                         const chunkPdfBlob = await generateChunkPDF(
                             chunks[i],
