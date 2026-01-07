@@ -759,40 +759,34 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
             }
 
             if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-                // Convert natural dimensions to points (1px ≈ 0.75pt for typical screen density)
-                const scaleFactor = 0.75
-                let targetWidth = img.naturalWidth * scaleFactor
-                let targetHeight = img.naturalHeight * scaleFactor
-
                 // A4 page dimensions in points (595 x 842)
                 // Leave margins: 15pt on each side = 30pt total
                 const maxPageWidth = 565 // 595 - 30 (margins)
                 const maxPageHeight = 812 // 842 - 30 (margins) - leave room for metadata
 
-                // Check if image would overflow the page dimensions
-                // Scale down proportionally to fit within page bounds while preserving aspect ratio
-                if (
-                    targetWidth > maxPageWidth ||
-                    targetHeight > maxPageHeight
-                ) {
-                    const widthRatio = maxPageWidth / targetWidth
-                    const heightRatio = maxPageHeight / targetHeight
-                    // Use the smaller ratio to ensure image fits both width and height
-                    const scaleRatio = Math.min(widthRatio, heightRatio)
+                // Calculate aspect ratio
+                const aspectRatio = img.naturalWidth / img.naturalHeight
 
-                    targetWidth = targetWidth * scaleRatio
-                    targetHeight = targetHeight * scaleRatio
+                // Calculate target dimensions that fit within page bounds
+                let targetWidth = maxPageWidth
+                let targetHeight = maxPageWidth / aspectRatio
 
-                    console.log(
-                        `Scaling down image from ${img.naturalWidth}x${img.naturalHeight} to ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt`,
-                    )
+                // If height exceeds max, scale by height instead
+                if (targetHeight > maxPageHeight) {
+                    targetHeight = maxPageHeight
+                    targetWidth = maxPageHeight * aspectRatio
                 }
 
-                // Set dimensions to ensure full image display and visibility
-                img.style.width = `${targetWidth}pt`
-                img.style.height = `${targetHeight}pt`
-                img.style.maxWidth = `${maxPageWidth}pt`
-                img.style.maxHeight = `${maxPageHeight}pt`
+                console.log(
+                    `Scaling image from ${img.naturalWidth}x${img.naturalHeight}px to fit within ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt (max: ${maxPageWidth}x${maxPageHeight}pt)`,
+                )
+
+                // Use maxWidth/maxHeight to constrain size while preserving aspect ratio
+                // Don't set explicit width/height to allow CSS to handle scaling properly
+                img.style.width = 'auto'
+                img.style.height = 'auto'
+                img.style.maxWidth = `${targetWidth}pt`
+                img.style.maxHeight = `${targetHeight}pt`
                 img.style.minWidth = 'auto'
                 img.style.minHeight = 'auto'
                 img.style.objectFit = 'contain'
@@ -800,6 +794,9 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 img.style.visibility = 'visible'
                 img.style.display = 'block'
                 img.style.opacity = '1'
+
+                // Force the image to respect max dimensions
+                img.style.boxSizing = 'border-box'
             } else {
                 console.error(
                     `Image still has no dimensions after waiting: ${img.naturalWidth}x${img.naturalHeight}`,
@@ -838,6 +835,26 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
     // Wait for all images to be processed
     await Promise.all(imagePromises)
 
+    // Wrap ALL images in no-break wrappers to prevent page breaks
+    const allImages = container.querySelectorAll('img')
+    allImages.forEach(img => {
+        // Create a wrapper div if it doesn't exist
+        if (!img.parentElement?.classList.contains('image-no-break-wrapper')) {
+            const wrapper = document.createElement('div')
+            wrapper.className = 'image-no-break-wrapper'
+            wrapper.style.pageBreakInside = 'avoid'
+            wrapper.style.breakInside = 'avoid'
+            wrapper.style.display = 'block'
+            wrapper.style.width = '100%'
+            wrapper.style.maxWidth = '100%'
+            img.parentNode?.insertBefore(wrapper, img)
+            wrapper.appendChild(img)
+        }
+    })
+
+    // Add a small delay to ensure styles are applied
+    await new Promise(resolve => setTimeout(resolve, 100))
+
     // Check photo containers and ensure they fit on a page
     const largePhotoContainers = container.querySelectorAll(
         '.photo-report-container',
@@ -863,21 +880,22 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                     const containerHeight = rect.height
                     const scaleRatio = maxContainerHeight / containerHeight
 
-                    // Get current image dimensions
-                    const imgCurrentWidth =
-                        imgElement.offsetWidth || imgElement.naturalWidth
-                    const imgCurrentHeight =
-                        imgElement.offsetHeight || imgElement.naturalHeight
+                    // Calculate max dimensions in pixels (convert from points if needed)
+                    // Assuming 96dpi: 1pt ≈ 1.33px
+                    const maxHeightPx = maxContainerHeight
+                    const aspectRatio =
+                        imgElement.naturalWidth / imgElement.naturalHeight
+                    const maxWidthPx = maxHeightPx * aspectRatio
 
-                    // Scale down proportionally
-                    const newWidth = imgCurrentWidth * scaleRatio
-                    const newHeight = imgCurrentHeight * scaleRatio
-
-                    imgElement.style.width = `${newWidth}px`
-                    imgElement.style.height = `${newHeight}px`
+                    // Use maxWidth/maxHeight instead of explicit dimensions
+                    imgElement.style.width = 'auto'
+                    imgElement.style.height = 'auto'
+                    imgElement.style.maxWidth = `${maxWidthPx}px`
+                    imgElement.style.maxHeight = `${maxHeightPx}px`
+                    imgElement.style.objectFit = 'contain'
 
                     console.log(
-                        `Scaling down photo container image from ${imgCurrentWidth}x${imgCurrentHeight} to ${newWidth.toFixed(0)}x${newHeight.toFixed(0)}px`,
+                        `Scaling down photo container image to max ${maxWidthPx.toFixed(0)}x${maxHeightPx.toFixed(0)}px (aspect ratio preserved)`,
                     )
                 }
             })
