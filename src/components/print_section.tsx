@@ -762,7 +762,9 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 // A4 page dimensions in points (595 x 842)
                 // Leave margins: 15pt on each side = 30pt total
                 const maxPageWidth = 565 // 595 - 30 (margins)
-                const maxPageHeight = 812 // 842 - 30 (margins) - leave room for metadata
+                // Reduce height more to account for headers, metadata, and ensure no cutoff
+                // Leave extra space: 30pt margins + ~50pt for headers/metadata = 80pt total
+                const maxPageHeight = 762 // 842 - 80 (margins + headers/metadata buffer)
 
                 // Calculate aspect ratio
                 const aspectRatio = img.naturalWidth / img.naturalHeight
@@ -813,10 +815,11 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                     img.src.substring(0, 100),
                 )
                 // Set fallback dimensions to ensure image is visible
+                // Use reduced height to account for headers/metadata
                 img.style.width = 'auto'
                 img.style.height = 'auto'
                 img.style.maxWidth = '565pt'
-                img.style.maxHeight = '812pt'
+                img.style.maxHeight = '762pt' // Reduced to prevent cutoff
             }
 
             // Ensure images don't break across pages and get proper spacing
@@ -1037,6 +1040,25 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
             elementStyle.visibility = 'visible'
             elementStyle.display = 'block'
             elementStyle.opacity = '1'
+            // Prevent word breaks within text
+            elementStyle.wordBreak = 'keep-all'
+            elementStyle.overflowWrap = 'normal'
+        }
+
+        // Prevent word breaks in all text elements
+        if (
+            element.tagName === 'SPAN' ||
+            element.tagName === 'STRONG' ||
+            element.tagName === 'EM' ||
+            element.tagName === 'B' ||
+            element.tagName === 'I' ||
+            element.tagName === 'SMALL' ||
+            element.tagName === 'LI'
+        ) {
+            elementStyle.wordBreak = 'keep-all'
+            elementStyle.overflowWrap = 'normal'
+            elementStyle.pageBreakInside = 'avoid'
+            elementStyle.breakInside = 'avoid'
         }
 
         // Add spacing for lists
@@ -1369,6 +1391,10 @@ const PrintSection: FC<PrintSectionProps> = ({
                             '.image-no-break-wrapper',
                             '.photo-report-container img',
                             '.photo-report-container small', // Keep metadata with image
+                            'p', // Prevent paragraph breaks
+                            'div', // Prevent div breaks
+                            'span', // Prevent span breaks
+                            'li', // Prevent list item breaks
                         ],
                     },
                 }
