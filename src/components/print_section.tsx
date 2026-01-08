@@ -795,20 +795,40 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 const targetWidthPx = targetWidth * scaleFactor
                 const targetHeightPx = targetHeight * scaleFactor
 
-                // Set explicit pixel dimensions for html2pdf.js to capture correctly
-                // This ensures html2canvas sees the correct size
-                img.style.width = `${targetWidthPx}px`
-                img.style.height = `${targetHeightPx}px`
-                img.style.maxWidth = `${targetWidthPx}px`
-                img.style.maxHeight = `${targetHeightPx}px`
-                img.style.minWidth = 'auto'
-                img.style.minHeight = 'auto'
-                img.style.objectFit = 'contain'
+                // CRITICAL: Preserve aspect ratio exactly to prevent squashing
+                // Calculate the actual aspect ratio from natural dimensions
+                const naturalAspectRatio = img.naturalWidth / img.naturalHeight
+
+                // Ensure the target dimensions maintain the exact aspect ratio
+                let finalWidthPx = targetWidthPx
+                let finalHeightPx = targetWidthPx / naturalAspectRatio
+
+                // If calculated height exceeds max, recalculate from height
+                if (finalHeightPx > targetHeightPx) {
+                    finalHeightPx = targetHeightPx
+                    finalWidthPx = targetHeightPx * naturalAspectRatio
+                }
+
+                console.log(
+                    `Image aspect ratio: ${naturalAspectRatio.toFixed(3)}, Final dimensions: ${finalWidthPx.toFixed(0)}x${finalHeightPx.toFixed(0)}px`,
+                )
+
+                // Set explicit pixel dimensions that preserve aspect ratio
+                // Use both width/height AND maxWidth/maxHeight to ensure html2canvas respects it
+                img.style.width = `${finalWidthPx}px`
+                img.style.height = `${finalHeightPx}px`
+                img.style.maxWidth = `${finalWidthPx}px`
+                img.style.maxHeight = `${finalHeightPx}px`
+                img.style.minWidth = '0'
+                img.style.minHeight = '0'
+                img.style.objectFit = 'contain' // Ensure image fits without distortion
                 img.style.objectPosition = 'center'
                 img.style.visibility = 'visible'
                 img.style.display = 'block'
                 img.style.opacity = '1'
                 img.style.boxSizing = 'border-box'
+                // Prevent any stretching or squashing
+                img.style.imageRendering = 'auto'
             } else {
                 console.error(
                     `Image still has no dimensions after waiting: ${img.naturalWidth}x${img.naturalHeight}`,
@@ -855,13 +875,30 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
         if (!img.parentElement?.classList.contains('image-no-break-wrapper')) {
             const wrapper = document.createElement('div')
             wrapper.className = 'image-no-break-wrapper'
+            // CRITICAL: Prevent page breaks inside the wrapper
             wrapper.style.pageBreakInside = 'avoid'
             wrapper.style.breakInside = 'avoid'
+            wrapper.style.pageBreakBefore = 'auto' // Allow starting on new page if needed
+            wrapper.style.breakBefore = 'auto'
             wrapper.style.display = 'block'
             wrapper.style.width = '100%'
             wrapper.style.maxWidth = '100%'
+            wrapper.style.overflow = 'visible' // Ensure image isn't clipped
+            // Ensure wrapper height matches image height
+            const imgElement = img as HTMLImageElement
+            if (imgElement.offsetHeight > 0) {
+                wrapper.style.minHeight = `${imgElement.offsetHeight}px`
+            }
             img.parentNode?.insertBefore(wrapper, img)
             wrapper.appendChild(img)
+        } else {
+            // If wrapper exists, ensure it has proper styling
+            const wrapper = img.parentElement
+            if (wrapper) {
+                wrapper.style.pageBreakInside = 'avoid'
+                wrapper.style.breakInside = 'avoid'
+                wrapper.style.overflow = 'visible'
+            }
         }
     })
 
