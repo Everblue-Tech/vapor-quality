@@ -936,17 +936,20 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 wrapper.className = 'image-no-break-wrapper'
                 wrapper.style.pageBreakInside = 'avoid'
                 wrapper.style.breakInside = 'avoid'
-                wrapper.style.display = 'inline-block'
+                wrapper.style.display = 'block'
                 wrapper.style.width = '100%'
+                wrapper.style.maxWidth = '100%'
                 img.parentNode?.insertBefore(wrapper, img)
                 wrapper.appendChild(img)
             }
         })
 
         // Aggressive page break prevention for photo containers
+        // CRITICAL: page-break-inside: avoid prevents the container from being split
+        // page-break-before: auto allows it to start on a new page if needed (to avoid header conflicts)
         containerElement.style.pageBreakInside = 'avoid'
         containerElement.style.breakInside = 'avoid'
-        containerElement.style.pageBreakBefore = 'auto'
+        containerElement.style.pageBreakBefore = 'auto' // Can start on new page if header pushes it
         containerElement.style.breakBefore = 'auto'
         containerElement.style.pageBreakAfter = 'auto'
         containerElement.style.breakAfter = 'auto'
@@ -963,6 +966,9 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
         containerElement.style.visibility = 'visible' // Ensure visibility
         containerElement.style.display = 'block' // Ensure display
         containerElement.style.opacity = '1' // Ensure full opacity
+
+        // Add a class for html2pdf pagebreak configuration
+        containerElement.classList.add('page-break-avoid')
     })
 
     // Ensure metadata text is visible and doesn't get cut off
@@ -1353,7 +1359,7 @@ const PrintSection: FC<PrintSectionProps> = ({
                         autoPaging: hasImages ? false : 'text', // Disable autoPaging for images to prevent splitting
                     },
                     pagebreak: {
-                        mode: ['css'], // Simplified page break mode
+                        mode: ['css', 'legacy'], // Use both modes for better compatibility
                         before: '.page-break-before',
                         after: '.page-break-after',
                         avoid: [
@@ -1361,6 +1367,8 @@ const PrintSection: FC<PrintSectionProps> = ({
                             'img',
                             '.photo-report-container',
                             '.image-no-break-wrapper',
+                            '.photo-report-container img',
+                            '.photo-report-container small', // Keep metadata with image
                         ],
                     },
                 }
