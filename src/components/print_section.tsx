@@ -766,69 +766,93 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 // Leave extra space: 30pt margins + ~50pt for headers/metadata = 80pt total
                 const maxPageHeight = 762 // 842 - 80 (margins + headers/metadata buffer)
 
-                // Calculate aspect ratio
-                const aspectRatio = img.naturalWidth / img.naturalHeight
+                // CRITICAL: Calculate aspect ratio from natural dimensions
+                const naturalAspectRatio = img.naturalWidth / img.naturalHeight
+                const isPortrait = naturalAspectRatio < 1 // Image is taller than wide
 
-                // Calculate target dimensions that fit within page bounds
+                console.log(
+                    `Image: ${img.naturalWidth}x${img.naturalHeight}px, Aspect ratio: ${naturalAspectRatio.toFixed(3)}, Portrait: ${isPortrait}`,
+                )
+
+                // Calculate target dimensions that fit within page bounds while preserving aspect ratio
                 let targetWidth = maxPageWidth
-                let targetHeight = maxPageWidth / aspectRatio
+                let targetHeight = maxPageWidth / naturalAspectRatio
 
-                // If height exceeds max, scale by height instead
+                // If height exceeds max (common for tall/portrait images), scale by height instead
                 if (targetHeight > maxPageHeight) {
                     targetHeight = maxPageHeight
-                    targetWidth = maxPageHeight * aspectRatio
+                    targetWidth = maxPageHeight * naturalAspectRatio
+                    console.log(
+                        `Tall image: scaling by height to ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt`,
+                    )
                 }
 
                 console.log(
-                    `Scaling image from ${img.naturalWidth}x${img.naturalHeight}px to fit within ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt (max: ${maxPageWidth}x${maxPageHeight}pt)`,
+                    `Target dimensions: ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt (max: ${maxPageWidth}x${maxPageHeight}pt)`,
                 )
 
-                // For html2pdf.js, we need to set explicit dimensions to ensure it captures the correct size
-                // html2pdf uses 800px canvas width, and we have 565pt max width (with margins)
-                // Convert points to pixels: html2pdf scales at 800px / 595pt ≈ 1.345
-                // But we need to account for the actual rendered size
+                // For html2pdf.js, convert points to pixels
+                // html2pdf uses 800px canvas width for 595pt page width
                 const html2canvasWidth = 800 // html2pdf canvas width
                 const pageWidthPt = 595 // Full A4 width in points
                 const scaleFactor = html2canvasWidth / pageWidthPt // ≈ 1.345
 
                 // Convert target dimensions from points to pixels for html2canvas
+                // CRITICAL: Maintain exact aspect ratio in pixel calculations
                 const targetWidthPx = targetWidth * scaleFactor
                 const targetHeightPx = targetHeight * scaleFactor
 
-                // CRITICAL: Preserve aspect ratio exactly to prevent squashing
-                // Calculate the actual aspect ratio from natural dimensions
-                const naturalAspectRatio = img.naturalWidth / img.naturalHeight
-
-                // Ensure the target dimensions maintain the exact aspect ratio
-                let finalWidthPx = targetWidthPx
-                let finalHeightPx = targetWidthPx / naturalAspectRatio
-
-                // If calculated height exceeds max, recalculate from height
-                if (finalHeightPx > targetHeightPx) {
-                    finalHeightPx = targetHeightPx
-                    finalWidthPx = targetHeightPx * naturalAspectRatio
-                }
-
-                console.log(
-                    `Image aspect ratio: ${naturalAspectRatio.toFixed(3)}, Final dimensions: ${finalWidthPx.toFixed(0)}x${finalHeightPx.toFixed(0)}px`,
+                // Double-check aspect ratio is preserved in pixels
+                const calculatedAspectRatio = targetWidthPx / targetHeightPx
+                const aspectRatioDiff = Math.abs(
+                    calculatedAspectRatio - naturalAspectRatio,
                 )
 
-                // Set explicit pixel dimensions that preserve aspect ratio
-                // Use both width/height AND maxWidth/maxHeight to ensure html2canvas respects it
-                img.style.width = `${finalWidthPx}px`
-                img.style.height = `${finalHeightPx}px`
-                img.style.maxWidth = `${finalWidthPx}px`
-                img.style.maxHeight = `${finalHeightPx}px`
+                if (aspectRatioDiff > 0.01) {
+                    console.warn(
+                        `Aspect ratio mismatch! Natural: ${naturalAspectRatio.toFixed(3)}, Calculated: ${calculatedAspectRatio.toFixed(3)}`,
+                    )
+                    // Recalculate to ensure exact match
+                    const correctedHeightPx = targetWidthPx / naturalAspectRatio
+                    const correctedWidthPx =
+                        correctedHeightPx > targetHeightPx
+                            ? targetHeightPx * naturalAspectRatio
+                            : targetWidthPx
+                    const finalHeightPx =
+                        correctedHeightPx > targetHeightPx
+                            ? targetHeightPx
+                            : correctedHeightPx
+
+                    console.log(
+                        `Corrected to: ${correctedWidthPx.toFixed(0)}x${finalHeightPx.toFixed(0)}px`,
+                    )
+
+                    // Set dimensions with exact aspect ratio
+                    img.style.width = `${correctedWidthPx}px`
+                    img.style.height = `${finalHeightPx}px`
+                    img.style.maxWidth = `${correctedWidthPx}px`
+                    img.style.maxHeight = `${finalHeightPx}px`
+                } else {
+                    // Set dimensions - aspect ratio is already correct
+                    img.style.width = `${targetWidthPx}px`
+                    img.style.height = `${targetHeightPx}px`
+                    img.style.maxWidth = `${targetWidthPx}px`
+                    img.style.maxHeight = `${targetHeightPx}px`
+                }
+
+                // CRITICAL: Ensure no distortion
                 img.style.minWidth = '0'
                 img.style.minHeight = '0'
-                img.style.objectFit = 'contain' // Ensure image fits without distortion
+                img.style.objectFit = 'contain' // Preserve aspect ratio, no cropping
                 img.style.objectPosition = 'center'
                 img.style.visibility = 'visible'
                 img.style.display = 'block'
                 img.style.opacity = '1'
                 img.style.boxSizing = 'border-box'
-                // Prevent any stretching or squashing
+                // Prevent any stretching, squashing, or distortion
                 img.style.imageRendering = 'auto'
+                // Ensure aspect ratio is locked
+                img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
             } else {
                 console.error(
                     `Image still has no dimensions after waiting: ${img.naturalWidth}x${img.naturalHeight}`,
