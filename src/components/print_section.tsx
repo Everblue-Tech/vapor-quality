@@ -781,12 +781,24 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                     `Scaling image from ${img.naturalWidth}x${img.naturalHeight}px to fit within ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt (max: ${maxPageWidth}x${maxPageHeight}pt)`,
                 )
 
-                // Use maxWidth/maxHeight to constrain size while preserving aspect ratio
-                // Don't set explicit width/height to allow CSS to handle scaling properly
-                img.style.width = 'auto'
-                img.style.height = 'auto'
-                img.style.maxWidth = `${targetWidth}pt`
-                img.style.maxHeight = `${targetHeight}pt`
+                // For html2pdf.js, we need to set explicit dimensions to ensure it captures the correct size
+                // html2pdf uses 800px canvas width, and we have 565pt max width (with margins)
+                // Convert points to pixels: html2pdf scales at 800px / 595pt ≈ 1.345
+                // But we need to account for the actual rendered size
+                const html2canvasWidth = 800 // html2pdf canvas width
+                const pageWidthPt = 595 // Full A4 width in points
+                const scaleFactor = html2canvasWidth / pageWidthPt // ≈ 1.345
+
+                // Convert target dimensions from points to pixels for html2canvas
+                const targetWidthPx = targetWidth * scaleFactor
+                const targetHeightPx = targetHeight * scaleFactor
+
+                // Set explicit pixel dimensions for html2pdf.js to capture correctly
+                // This ensures html2canvas sees the correct size
+                img.style.width = `${targetWidthPx}px`
+                img.style.height = `${targetHeightPx}px`
+                img.style.maxWidth = `${targetWidthPx}px`
+                img.style.maxHeight = `${targetHeightPx}px`
                 img.style.minWidth = 'auto'
                 img.style.minHeight = 'auto'
                 img.style.objectFit = 'contain'
@@ -794,8 +806,6 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 img.style.visibility = 'visible'
                 img.style.display = 'block'
                 img.style.opacity = '1'
-
-                // Force the image to respect max dimensions
                 img.style.boxSizing = 'border-box'
             } else {
                 console.error(
@@ -852,8 +862,10 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
         }
     })
 
-    // Add a small delay to ensure styles are applied
-    await new Promise(resolve => setTimeout(resolve, 100))
+    // Force a reflow to ensure styles are applied before html2pdf captures the content
+    // This is critical for html2pdf.js to see the resized images
+    container.offsetHeight // Force reflow
+    await new Promise(resolve => setTimeout(resolve, 200)) // Longer delay for html2pdf
 
     // Check photo containers and ensure they fit on a page
     const largePhotoContainers = container.querySelectorAll(
