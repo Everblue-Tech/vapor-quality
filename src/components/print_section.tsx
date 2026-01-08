@@ -762,9 +762,8 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 // A4 page dimensions in points (595 x 842)
                 // Leave margins: 15pt on each side = 30pt total
                 const maxPageWidth = 565 // 595 - 30 (margins)
-                // Reduce height more to account for headers, metadata, and ensure no cutoff
-                // Leave extra space: 30pt margins + ~50pt for headers/metadata = 80pt total
-                const maxPageHeight = 762 // 842 - 80 (margins + headers/metadata buffer)
+                // Full page height minus margins for large images that get their own page
+                const fullPageHeight = 812 // 842 - 30 (margins)
 
                 // CRITICAL: Calculate aspect ratio from natural dimensions
                 const naturalAspectRatio = img.naturalWidth / img.naturalHeight
@@ -774,73 +773,46 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                     `Image: ${img.naturalWidth}x${img.naturalHeight}px, Aspect ratio: ${naturalAspectRatio.toFixed(3)}, Portrait: ${isPortrait}`,
                 )
 
-                // Calculate target dimensions that fit within page bounds while preserving aspect ratio
-                let targetWidth = maxPageWidth
-                let targetHeight = maxPageWidth / naturalAspectRatio
-
-                // If height exceeds max (common for tall/portrait images), scale by height instead
-                if (targetHeight > maxPageHeight) {
-                    targetHeight = maxPageHeight
-                    targetWidth = maxPageHeight * naturalAspectRatio
-                    console.log(
-                        `Tall image: scaling by height to ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt`,
-                    )
-                }
-
-                console.log(
-                    `Target dimensions: ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt (max: ${maxPageWidth}x${maxPageHeight}pt)`,
-                )
-
                 // For html2pdf.js, convert points to pixels
                 // html2pdf uses 800px canvas width for 595pt page width
                 const html2canvasWidth = 800 // html2pdf canvas width
                 const pageWidthPt = 595 // Full A4 width in points
                 const scaleFactor = html2canvasWidth / pageWidthPt // ≈ 1.345
 
-                // Convert target dimensions from points to pixels for html2canvas
-                // CRITICAL: Maintain exact aspect ratio in pixel calculations
+                // Give ALL large images their own full page to prevent squashing and splitting
+                // Calculate dimensions to fill the full page while preserving aspect ratio
+                let targetWidth = maxPageWidth
+                let targetHeight = maxPageWidth / naturalAspectRatio
+
+                // If height exceeds full page height, scale by height
+                if (targetHeight > fullPageHeight) {
+                    targetHeight = fullPageHeight
+                    targetWidth = fullPageHeight * naturalAspectRatio
+                }
+
+                console.log(
+                    `Large image gets full page: ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt (preserving aspect ratio ${naturalAspectRatio.toFixed(3)})`,
+                )
+
+                // Convert to pixels
                 const targetWidthPx = targetWidth * scaleFactor
                 const targetHeightPx = targetHeight * scaleFactor
 
-                // Double-check aspect ratio is preserved in pixels
-                const calculatedAspectRatio = targetWidthPx / targetHeightPx
-                const aspectRatioDiff = Math.abs(
-                    calculatedAspectRatio - naturalAspectRatio,
-                )
+                // Set dimensions to fill page while preserving aspect ratio
+                img.style.width = `${targetWidthPx}px`
+                img.style.height = `${targetHeightPx}px`
+                img.style.maxWidth = `${targetWidthPx}px`
+                img.style.maxHeight = `${targetHeightPx}px`
 
-                if (aspectRatioDiff > 0.01) {
-                    console.warn(
-                        `Aspect ratio mismatch! Natural: ${naturalAspectRatio.toFixed(3)}, Calculated: ${calculatedAspectRatio.toFixed(3)}`,
-                    )
-                    // Recalculate to ensure exact match
-                    const correctedHeightPx = targetWidthPx / naturalAspectRatio
-                    const correctedWidthPx =
-                        correctedHeightPx > targetHeightPx
-                            ? targetHeightPx * naturalAspectRatio
-                            : targetWidthPx
-                    const finalHeightPx =
-                        correctedHeightPx > targetHeightPx
-                            ? targetHeightPx
-                            : correctedHeightPx
+                // CRITICAL: Force page breaks so image gets its own page with nothing else
+                img.style.pageBreakBefore = 'always'
+                img.style.breakBefore = 'page'
+                img.style.pageBreakAfter = 'always'
+                img.style.breakAfter = 'page'
+                img.style.pageBreakInside = 'avoid'
+                img.style.breakInside = 'avoid'
 
-                    console.log(
-                        `Corrected to: ${correctedWidthPx.toFixed(0)}x${finalHeightPx.toFixed(0)}px`,
-                    )
-
-                    // Set dimensions with exact aspect ratio
-                    img.style.width = `${correctedWidthPx}px`
-                    img.style.height = `${finalHeightPx}px`
-                    img.style.maxWidth = `${correctedWidthPx}px`
-                    img.style.maxHeight = `${finalHeightPx}px`
-                } else {
-                    // Set dimensions - aspect ratio is already correct
-                    img.style.width = `${targetWidthPx}px`
-                    img.style.height = `${targetHeightPx}px`
-                    img.style.maxWidth = `${targetWidthPx}px`
-                    img.style.maxHeight = `${targetHeightPx}px`
-                }
-
-                // CRITICAL: Ensure no distortion
+                // CRITICAL: Ensure no distortion - always preserve aspect ratio
                 img.style.minWidth = '0'
                 img.style.minHeight = '0'
                 img.style.objectFit = 'contain' // Preserve aspect ratio, no cropping
@@ -849,9 +821,8 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 img.style.display = 'block'
                 img.style.opacity = '1'
                 img.style.boxSizing = 'border-box'
-                // Prevent any stretching, squashing, or distortion
                 img.style.imageRendering = 'auto'
-                // Ensure aspect ratio is locked
+                // Lock aspect ratio
                 img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
             } else {
                 console.error(
@@ -866,15 +837,18 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 img.style.maxHeight = '762pt' // Reduced to prevent cutoff
             }
 
-            // Ensure images don't break across pages and get proper spacing
-            img.style.pageBreakInside = 'avoid'
-            img.style.breakInside = 'avoid'
-            img.style.pageBreakBefore = 'auto'
-            img.style.breakBefore = 'auto'
-            img.style.pageBreakAfter = 'auto'
-            img.style.breakAfter = 'auto'
-            img.style.marginTop = '10px'
-            img.style.marginBottom = '5px'
+            // Page break settings are set above for large images
+            // For images without dimensions, set defaults
+            if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+                img.style.pageBreakInside = 'avoid'
+                img.style.breakInside = 'avoid'
+                img.style.pageBreakBefore = 'always'
+                img.style.breakBefore = 'page'
+                img.style.pageBreakAfter = 'always'
+                img.style.breakAfter = 'page'
+            }
+            img.style.marginTop = '0'
+            img.style.marginBottom = '0'
 
             // Additional CSS properties to prevent image splitting
             img.style.display = 'block'
@@ -895,33 +869,57 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
     // Wrap ALL images in no-break wrappers to prevent page breaks
     const allImages = container.querySelectorAll('img')
     allImages.forEach(img => {
+        const imgElement = img as HTMLImageElement
+        // Check if this is a large image that should get its own page
+        const isLargeImage =
+            imgElement.naturalWidth > 0 &&
+            imgElement.naturalHeight > 0 &&
+            (imgElement.naturalWidth / imgElement.naturalHeight < 1 || // Portrait
+                imgElement.naturalWidth > 600 || // Large width
+                imgElement.naturalHeight > 800) // Large height
+
         // Create a wrapper div if it doesn't exist
         if (!img.parentElement?.classList.contains('image-no-break-wrapper')) {
             const wrapper = document.createElement('div')
             wrapper.className = 'image-no-break-wrapper'
-            // CRITICAL: Prevent page breaks inside the wrapper
-            wrapper.style.pageBreakInside = 'avoid'
-            wrapper.style.breakInside = 'avoid'
-            wrapper.style.pageBreakBefore = 'auto' // Allow starting on new page if needed
-            wrapper.style.breakBefore = 'auto'
             wrapper.style.display = 'block'
             wrapper.style.width = '100%'
             wrapper.style.maxWidth = '100%'
-            wrapper.style.overflow = 'visible' // Ensure image isn't clipped
+            wrapper.style.overflow = 'visible'
+
+            if (isLargeImage) {
+                // Large images: force page breaks to get their own full page
+                wrapper.style.pageBreakBefore = 'always'
+                wrapper.style.breakBefore = 'page'
+                wrapper.style.pageBreakAfter = 'always'
+                wrapper.style.breakAfter = 'page'
+                wrapper.style.pageBreakInside = 'avoid'
+                wrapper.style.breakInside = 'avoid'
+                wrapper.classList.add('full-page-image')
+            } else {
+                // Smaller images: prevent breaking but allow normal flow
+                wrapper.style.pageBreakInside = 'avoid'
+                wrapper.style.breakInside = 'avoid'
+                wrapper.style.pageBreakBefore = 'auto'
+                wrapper.style.breakBefore = 'auto'
+            }
+
             // Ensure wrapper height matches image height
-            const imgElement = img as HTMLImageElement
             if (imgElement.offsetHeight > 0) {
                 wrapper.style.minHeight = `${imgElement.offsetHeight}px`
             }
+
             img.parentNode?.insertBefore(wrapper, img)
             wrapper.appendChild(img)
         } else {
-            // If wrapper exists, ensure it has proper styling
+            // If wrapper exists, update styling based on image size
             const wrapper = img.parentElement
-            if (wrapper) {
-                wrapper.style.pageBreakInside = 'avoid'
-                wrapper.style.breakInside = 'avoid'
-                wrapper.style.overflow = 'visible'
+            if (wrapper && isLargeImage) {
+                wrapper.style.pageBreakBefore = 'always'
+                wrapper.style.breakBefore = 'page'
+                wrapper.style.pageBreakAfter = 'always'
+                wrapper.style.breakAfter = 'page'
+                wrapper.classList.add('full-page-image')
             }
         }
     })
