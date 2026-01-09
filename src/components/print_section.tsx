@@ -512,27 +512,23 @@ const generateChunkPDF = async (
                 : canvasHeight,
             // Prevent image splitting by ensuring full capture
             onclone: (clonedDoc: Document) => {
-                // CRITICAL: Ensure all image containers have hard height limits and page breaks
+                // Ensure page-break-inside: avoid is maintained in cloned document
                 const clonedImages = clonedDoc.querySelectorAll(
-                    '.image-isolated-page, [data-isolated-image="true"]',
+                    '.image-isolated-page',
                 )
                 clonedImages.forEach(wrapper => {
                     const el = wrapper as HTMLElement
-                    el.style.maxHeight = '1123px' // Hard limit to one page
-                    el.style.overflow = 'hidden'
-                    el.style.pageBreakBefore = 'always'
-                    el.style.breakBefore = 'page'
-                    el.style.pageBreakAfter = 'always'
-                    el.style.breakAfter = 'page'
                     el.style.pageBreakInside = 'avoid'
                     el.style.breakInside = 'avoid'
+                    el.style.pageBreakBefore = 'always'
+                    el.style.breakBefore = 'page'
 
-                    // Also constrain the image inside
+                    // Also set on the image itself
                     const img = el.querySelector('img')
                     if (img) {
                         const imgEl = img as HTMLElement
-                        imgEl.style.maxHeight = '1123px'
-                        imgEl.style.objectFit = 'contain'
+                        imgEl.style.pageBreakInside = 'avoid'
+                        imgEl.style.breakInside = 'avoid'
                     }
                 })
             },
@@ -546,17 +542,15 @@ const generateChunkPDF = async (
             autoPaging: hasImages ? false : 'text', // Disable autoPaging for image chunks to prevent splitting
         },
         pagebreak: {
-            mode: ['css', 'legacy'],
-            before: '.page-break-before, [data-page-break="before"], .image-isolated-page, [data-isolated-image="true"]',
-            after: '.page-break-after, [data-page-break="after"], .image-isolated-page, [data-isolated-image="true"]',
+            // CRITICAL: 'avoid-all' automatically prevents elements from splitting across pages
+            mode: ['avoid-all', 'css', 'legacy'],
+            before: '.page-break-before',
+            after: '.page-break-after',
             avoid: [
-                '.page-break-avoid',
-                '[data-page-break="always"]',
-                '[data-isolated-image="true"]',
-                '.image-isolated-page',
                 'img',
+                '.image-isolated-page',
                 '.photo-report-container',
-                '.full-page-image',
+                '.photo-report-container img',
             ],
         },
     }
@@ -916,68 +910,41 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
     // Wait for all images to be processed
     await Promise.all(imagePromises)
 
-    // Wrap ALL images in isolated containers that will be rendered separately
-    // CRITICAL: Each image gets its own isolated container with explicit height limit
+    // Wrap ALL images in containers with page-break-inside: avoid
+    // This is the recommended approach per html2pdf.js documentation
     const allImages = container.querySelectorAll('img')
-    allImages.forEach((img, index) => {
-        const imgElement = img as HTMLImageElement
-
+    allImages.forEach(img => {
         // Create a wrapper div if it doesn't exist
         if (!img.parentElement?.classList.contains('image-isolated-page')) {
             const wrapper = document.createElement('div')
             wrapper.className = 'image-isolated-page'
 
-            // CRITICAL: Set explicit height to one page maximum to prevent splitting
-            // A4 page height in pixels: 842pt = ~1123px at 96dpi, but we use 85% = ~955px
-            // html2pdf uses 800px width, so height should be ~1123px for full page
-            const maxPageHeightPx = 1123 // Full A4 page height in pixels for html2canvas
-            wrapper.style.display = 'block'
-            wrapper.style.width = '100%'
-            wrapper.style.maxWidth = '100%'
-            wrapper.style.maxHeight = `${maxPageHeightPx}px` // CRITICAL: Hard limit to one page
-            wrapper.style.overflow = 'hidden' // Prevent overflow that could cause splitting
-            wrapper.style.position = 'relative'
-            wrapper.style.pageBreakBefore = 'always'
-            wrapper.style.breakBefore = 'page'
-            wrapper.style.pageBreakAfter = 'always'
-            wrapper.style.breakAfter = 'page'
+            // CRITICAL: Use page-break-inside: avoid as recommended by html2pdf.js docs
             wrapper.style.pageBreakInside = 'avoid'
             wrapper.style.breakInside = 'avoid'
-            wrapper.classList.add('full-page-image', 'page-break-avoid')
-            wrapper.setAttribute('data-page-break', 'always')
-            wrapper.setAttribute('data-isolated-image', 'true')
-
-            // Ensure image itself is constrained
-            img.style.maxHeight = `${maxPageHeightPx}px`
-            img.style.objectFit = 'contain'
-            img.style.display = 'block'
-            img.style.width = 'auto'
-            img.style.height = 'auto'
+            wrapper.style.pageBreakBefore = 'always'
+            wrapper.style.breakBefore = 'page'
+            wrapper.style.display = 'block'
+            wrapper.style.width = '100%'
+            wrapper.style.position = 'relative'
 
             img.parentNode?.insertBefore(wrapper, img)
             wrapper.appendChild(img)
         } else {
-            // If wrapper exists, ensure it has the height limit
+            // If wrapper exists, ensure it has page break settings
             const wrapper = img.parentElement
             if (wrapper) {
-                const maxPageHeightPx = 1123
-                wrapper.style.maxHeight = `${maxPageHeightPx}px`
-                wrapper.style.overflow = 'hidden'
-                wrapper.style.pageBreakBefore = 'always'
-                wrapper.style.breakBefore = 'page'
-                wrapper.style.pageBreakAfter = 'always'
-                wrapper.style.breakAfter = 'page'
                 wrapper.style.pageBreakInside = 'avoid'
                 wrapper.style.breakInside = 'avoid'
-                wrapper.classList.add('full-page-image', 'page-break-avoid')
-                wrapper.setAttribute('data-page-break', 'always')
-                wrapper.setAttribute('data-isolated-image', 'true')
-
-                // Ensure image is constrained
-                img.style.maxHeight = `${maxPageHeightPx}px`
-                img.style.objectFit = 'contain'
+                wrapper.style.pageBreakBefore = 'always'
+                wrapper.style.breakBefore = 'page'
             }
         }
+
+        // Ensure image itself has page-break-inside: avoid
+        img.style.pageBreakInside = 'avoid'
+        img.style.breakInside = 'avoid'
+        img.style.display = 'block'
     })
 
     // Force a reflow to ensure styles are applied before html2pdf captures the content
@@ -1519,23 +1486,16 @@ const PrintSection: FC<PrintSectionProps> = ({
                         autoPaging: hasImages ? false : 'text',
                     },
                     pagebreak: {
-                        mode: ['css', 'legacy'], // Use both modes for better compatibility
-                        before: '.page-break-before, [data-page-break="before"], .image-isolated-page, [data-isolated-image="true"]',
-                        after: '.page-break-after, [data-page-break="after"], .image-isolated-page, [data-isolated-image="true"]',
+                        // CRITICAL: 'avoid-all' automatically prevents elements from splitting across pages
+                        mode: ['avoid-all', 'css', 'legacy'],
+                        before: '.page-break-before',
+                        after: '.page-break-after',
                         avoid: [
-                            '.page-break-avoid',
-                            '[data-page-break="always"]',
-                            '[data-isolated-image="true"]',
-                            '.image-isolated-page',
                             'img',
+                            '.image-isolated-page',
                             '.photo-report-container',
-                            '.full-page-image',
                             '.photo-report-container img',
                             '.photo-report-container small', // Keep metadata with image
-                            'p', // Prevent paragraph breaks
-                            'div', // Prevent div breaks
-                            'span', // Prevent span breaks
-                            'li', // Prevent list item breaks
                         ],
                     },
                 }
