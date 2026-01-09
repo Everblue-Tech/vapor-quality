@@ -475,60 +475,60 @@ const generatePDFFromHTML = async (
 ): Promise<Blob> => {
     const { margin = 15, scale = 1.5, quality = 0.98 } = options
 
-    // Step 1: Capture HTML as canvas
-    const canvas = await html2canvas(element, {
-        scale: scale,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        imageTimeout: 15000,
-        width: element.scrollWidth,
-        height: element.scrollHeight,
-    })
+    // Validate element is in DOM
+    if (!element || !element.parentNode) {
+        throw new Error('Element is not attached to DOM')
+    }
 
-    // Step 2: Create PDF
-    const pdf = new jsPDF({
-        unit: 'pt',
-        format: 'a4',
-        orientation: 'portrait',
-        compress: false,
-    })
+    // Ensure element is visible
+    const originalDisplay = element.style.display
+    const originalVisibility = element.style.visibility
+    element.style.display = 'block'
+    element.style.visibility = 'visible'
 
-    // Step 3: Calculate dimensions
-    const pdfWidth = pdf.internal.pageSize.getWidth()
-    const pdfHeight = pdf.internal.pageSize.getHeight()
-    const marginPt = margin
-    const contentWidth = pdfWidth - marginPt * 2
-    const contentHeight = pdfHeight - marginPt * 2
+    try {
+        // Step 1: Capture HTML as canvas
+        const canvas = await html2canvas(element, {
+            scale: scale,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            imageTimeout: 15000,
+            width: element.scrollWidth || element.offsetWidth || 800,
+            height: element.scrollHeight || element.offsetHeight || 1200,
+            removeContainer: false, // Keep element in DOM
+        })
 
-    // Step 4: Convert canvas to image
-    const imgData = canvas.toDataURL('image/jpeg', quality)
-    const imgWidth = canvas.width
-    const imgHeight = canvas.height
+        // Step 2: Create PDF
+        const pdf = new jsPDF({
+            unit: 'pt',
+            format: 'a4',
+            orientation: 'portrait',
+            compress: false,
+        })
 
-    // Step 5: Calculate scaling to fit PDF width
-    const ratio = contentWidth / imgWidth
-    const scaledHeight = imgHeight * ratio
+        // Step 3: Calculate dimensions
+        const pdfWidth = pdf.internal.pageSize.getWidth()
+        const pdfHeight = pdf.internal.pageSize.getHeight()
+        const marginPt = margin
+        const contentWidth = pdfWidth - marginPt * 2
+        const contentHeight = pdfHeight - marginPt * 2
 
-    // Step 6: Split across pages if needed
-    let heightLeft = scaledHeight
-    let position = marginPt
+        // Step 4: Convert canvas to image
+        const imgData = canvas.toDataURL('image/jpeg', quality)
+        const imgWidth = canvas.width
+        const imgHeight = canvas.height
 
-    // Add first page
-    pdf.addImage(
-        imgData,
-        'JPEG',
-        marginPt,
-        position,
-        contentWidth,
-        scaledHeight,
-    )
+        // Step 5: Calculate scaling to fit PDF width
+        const ratio = contentWidth / imgWidth
+        const scaledHeight = imgHeight * ratio
 
-    // Add additional pages if content is taller than one page
-    while (heightLeft > contentHeight) {
-        position -= contentHeight
-        pdf.addPage()
+        // Step 6: Split across pages if needed
+        let heightLeft = scaledHeight
+        let position = marginPt
+
+        // Add first page
         pdf.addImage(
             imgData,
             'JPEG',
@@ -537,10 +537,28 @@ const generatePDFFromHTML = async (
             contentWidth,
             scaledHeight,
         )
-        heightLeft -= contentHeight
-    }
 
-    return pdf.output('blob')
+        // Add additional pages if content is taller than one page
+        while (heightLeft > contentHeight) {
+            position -= contentHeight
+            pdf.addPage()
+            pdf.addImage(
+                imgData,
+                'JPEG',
+                marginPt,
+                position,
+                contentWidth,
+                scaledHeight,
+            )
+            heightLeft -= contentHeight
+        }
+
+        return pdf.output('blob')
+    } finally {
+        // Restore original styles
+        element.style.display = originalDisplay
+        element.style.visibility = originalVisibility
+    }
 }
 
 /**
@@ -581,41 +599,41 @@ const generatePDFWithImageHandling = async (
 
     // Process non-image content first
     if (nonImageElements.length > 0) {
-        const textContainer = document.createElement('div')
-        textContainer.style.width = `${container.scrollWidth}px`
-        nonImageElements.forEach(el => {
-            textContainer.appendChild(el.cloneNode(true) as HTMLElement)
+        // Instead of cloning, render the original container but hide images
+        // This ensures all resources are loaded and accessible
+        const imagesToHide: HTMLElement[] = []
+        container.querySelectorAll('img').forEach(img => {
+            const imgEl = img as HTMLElement
+            if (imgEl.offsetParent !== null) {
+                // Image is visible, hide it temporarily
+                imagesToHide.push(imgEl)
+                imgEl.style.display = 'none'
+            }
         })
 
-        const canvas = await html2canvas(textContainer, {
-            scale: 1.5,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: '#ffffff',
-            logging: false,
-            imageTimeout: 15000,
-        })
+        try {
+            const canvas = await html2canvas(container, {
+                scale: 1.5,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff',
+                logging: false,
+                imageTimeout: 15000,
+                removeContainer: false,
+                ignoreElements: element => {
+                    // Ignore image elements when rendering text content
+                    return element.tagName === 'IMG'
+                },
+            })
 
-        const imgData = canvas.toDataURL('image/jpeg', 0.98)
-        const ratio = contentWidth / canvas.width
-        const scaledHeight = canvas.height * ratio
+            const imgData = canvas.toDataURL('image/jpeg', 0.98)
+            const ratio = contentWidth / canvas.width
+            const scaledHeight = canvas.height * ratio
 
-        // Add to PDF with pagination
-        let heightLeft = scaledHeight
-        let position = margin
+            // Add to PDF with pagination
+            let heightLeft = scaledHeight
+            let position = margin
 
-        pdf.addImage(
-            imgData,
-            'JPEG',
-            margin,
-            position,
-            contentWidth,
-            scaledHeight,
-        )
-
-        while (heightLeft > contentHeight) {
-            position -= contentHeight
-            pdf.addPage()
             pdf.addImage(
                 imgData,
                 'JPEG',
@@ -624,41 +642,77 @@ const generatePDFWithImageHandling = async (
                 contentWidth,
                 scaledHeight,
             )
-            heightLeft -= contentHeight
+
+            while (heightLeft > contentHeight) {
+                position -= contentHeight
+                pdf.addPage()
+                pdf.addImage(
+                    imgData,
+                    'JPEG',
+                    margin,
+                    position,
+                    contentWidth,
+                    scaledHeight,
+                )
+                heightLeft -= contentHeight
+            }
+        } finally {
+            // Restore images
+            imagesToHide.forEach(img => {
+                img.style.display = ''
+            })
         }
     }
 
     // Process each image separately - one per page
     for (const imageContainer of imageContainers) {
-        pdf.addPage()
+        // Ensure image container is in DOM and visible
+        if (!imageContainer.parentNode) {
+            console.warn('Image container not in DOM, skipping')
+            continue
+        }
 
-        const canvas = await html2canvas(imageContainer, {
-            scale: 1.2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: '#ffffff',
-            logging: false,
-            imageTimeout: 15000,
-        })
+        const originalDisplay = imageContainer.style.display
+        const originalVisibility = imageContainer.style.visibility
+        imageContainer.style.display = 'block'
+        imageContainer.style.visibility = 'visible'
 
-        const imgData = canvas.toDataURL('image/jpeg', 0.98)
+        try {
+            pdf.addPage()
 
-        // Scale image to fit page (85% as requested)
-        const maxImageWidth = contentWidth * 0.85
-        const maxImageHeight = contentHeight * 0.85
-        const ratio = Math.min(
-            maxImageWidth / canvas.width,
-            maxImageHeight / canvas.height,
-        )
+            const canvas = await html2canvas(imageContainer, {
+                scale: 1.2,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff',
+                logging: false,
+                imageTimeout: 15000,
+                removeContainer: false,
+            })
 
-        const scaledWidth = canvas.width * ratio
-        const scaledHeight = canvas.height * ratio
+            const imgData = canvas.toDataURL('image/jpeg', 0.98)
 
-        // Center image on page
-        const x = margin + (contentWidth - scaledWidth) / 2
-        const y = margin + (contentHeight - scaledHeight) / 2
+            // Scale image to fit page (85% as requested)
+            const maxImageWidth = contentWidth * 0.85
+            const maxImageHeight = contentHeight * 0.85
+            const ratio = Math.min(
+                maxImageWidth / canvas.width,
+                maxImageHeight / canvas.height,
+            )
 
-        pdf.addImage(imgData, 'JPEG', x, y, scaledWidth, scaledHeight)
+            const scaledWidth = canvas.width * ratio
+            const scaledHeight = canvas.height * ratio
+
+            // Center image on page
+            const x = margin + (contentWidth - scaledWidth) / 2
+            const y = margin + (contentHeight - scaledHeight) / 2
+
+            pdf.addImage(imgData, 'JPEG', x, y, scaledWidth, scaledHeight)
+        } finally {
+            // Restore original styles
+            imageContainer.style.display = originalDisplay
+            imageContainer.style.visibility = originalVisibility
+        }
     }
 
     return pdf.output('blob')
@@ -1449,15 +1503,32 @@ const PrintSection: FC<PrintSectionProps> = ({
                         // Preprocess images for this chunk (after they're loaded)
                         await preprocessImagesForPDF(chunks[i])
 
-                        const chunkPdfBlob = await generateChunkPDF(
-                            chunks[i],
-                            i,
-                        )
-                        pdfBlobs.push(chunkPdfBlob)
+                        // Ensure chunk is in DOM and visible before rendering
+                        if (!chunks[i].parentNode) {
+                            // Temporarily append to body if not in DOM
+                            document.body.appendChild(chunks[i])
+                        }
+                        const originalDisplay = chunks[i].style.display
+                        chunks[i].style.display = 'block'
+                        chunks[i].style.visibility = 'visible'
 
-                        console.log(
-                            `Successfully generated PDF for chunk ${i + 1}`,
-                        )
+                        try {
+                            const chunkPdfBlob = await generateChunkPDF(
+                                chunks[i],
+                                i,
+                            )
+                            pdfBlobs.push(chunkPdfBlob)
+                            console.log(
+                                `Successfully generated PDF for chunk ${i + 1}`,
+                            )
+                        } finally {
+                            // Restore original display
+                            chunks[i].style.display = originalDisplay
+                            // Remove from body if we added it
+                            if (chunks[i].parentNode === document.body) {
+                                document.body.removeChild(chunks[i])
+                            }
+                        }
                     } catch (chunkError) {
                         console.error(
                             `Error generating PDF for chunk ${i + 1}:`,
