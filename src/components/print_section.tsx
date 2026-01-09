@@ -543,13 +543,12 @@ const generateChunkPDF = async (
             autoPaging: 'text', // Let html2pdf.js handle pagination with avoid-all mode
         },
         pagebreak: {
-            // CRITICAL: Use 'legacy' mode to recognize html2pdf__page-break class
+            // CRITICAL: Use 'avoid-all' for automatic detection and 'css' for CSS properties
             mode: ['avoid-all', 'css', 'legacy'],
-            before: '.page-break-before, .html2pdf__page-break, .image-page-spacer',
-            after: '.page-break-after, .html2pdf__page-break, .image-page-spacer',
+            before: '.page-break-before',
+            after: '.page-break-after',
             avoid: [
                 'img',
-                '.image-isolated-page',
                 '.photo-report-container',
                 '.photo-report-container img',
             ],
@@ -911,92 +910,54 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
     // Wait for all images to be processed
     await Promise.all(imagePromises)
 
-    // CRITICAL: Wrap ALL images in containers that force page breaks and prevent splitting
-    // Fix: Ensure images are visible and properly wrapped, use a smaller spacer
+    // CRITICAL: Apply page break styles directly to images and their containers
+    // DO NOT wrap images - this breaks html2canvas rendering
+    // Instead, apply styles directly to existing containers
     const allImages = container.querySelectorAll('img')
-    allImages.forEach((img, index) => {
-        // Create a wrapper div if it doesn't exist
-        if (!img.parentElement?.classList.contains('image-isolated-page')) {
-            // CRITICAL: Insert a page break spacer BEFORE wrapping
-            // Use a smaller spacer that won't interfere with rendering
-            const spacer = document.createElement('div')
-            spacer.className = 'html2pdf__page-break image-page-spacer'
-            spacer.style.height = '1px' // Minimal height, just for page break
-            spacer.style.display = 'block'
-            spacer.style.pageBreakAfter = 'always'
-            spacer.style.breakAfter = 'page'
-            spacer.style.margin = '0'
-            spacer.style.padding = '0'
-            spacer.style.border = 'none'
-            spacer.style.overflow = 'hidden'
-            spacer.style.lineHeight = '0'
-            spacer.style.fontSize = '0'
-
-            const wrapper = document.createElement('div')
-            wrapper.className = 'image-isolated-page'
-
-            // CRITICAL: Set maximum height to less than one page to prevent splitting
-            // A4 page: 842pt height, with 15pt margins = 812pt usable
-            // Use 80% of that = ~650pt to ensure it fits with buffer
-            const maxPageHeightPt = 650 // 80% of usable page height for safety
-            const scaleFactor = 800 / 595 // html2canvas scale
-            const maxPageHeightPx = maxPageHeightPt * scaleFactor
-
-            wrapper.style.pageBreakInside = 'avoid'
-            wrapper.style.breakInside = 'avoid'
-            wrapper.style.pageBreakBefore = 'always'
-            wrapper.style.breakBefore = 'page'
-            wrapper.style.maxHeight = `${maxPageHeightPx}px` // CRITICAL: Hard limit
-            wrapper.style.overflow = 'visible' // CRITICAL: Changed from hidden to visible
-            wrapper.style.display = 'block'
-            wrapper.style.width = '100%'
-            wrapper.style.position = 'relative'
-            wrapper.style.marginTop = '0'
-            wrapper.style.marginBottom = '0'
-            wrapper.style.paddingTop = '0'
-            wrapper.style.paddingBottom = '0'
-            wrapper.style.visibility = 'visible' // CRITICAL: Ensure visible
-            wrapper.style.opacity = '1' // CRITICAL: Ensure fully opaque
-
-            // Insert spacer and wrapper before image
-            img.parentNode?.insertBefore(spacer, img)
-            img.parentNode?.insertBefore(wrapper, img)
-            wrapper.appendChild(img)
-        } else {
-            // If wrapper exists, ensure it has the correct settings
-            const wrapper = img.parentElement
-            if (wrapper) {
-                const maxPageHeightPt = 650
-                const scaleFactor = 800 / 595
-                const maxPageHeightPx = maxPageHeightPt * scaleFactor
-                wrapper.style.maxHeight = `${maxPageHeightPx}px`
-                wrapper.style.overflow = 'visible' // CRITICAL: Changed from hidden
-                wrapper.style.pageBreakInside = 'avoid'
-                wrapper.style.breakInside = 'avoid'
-                wrapper.style.pageBreakBefore = 'always'
-                wrapper.style.breakBefore = 'page'
-                wrapper.style.marginTop = '0'
-                wrapper.style.marginBottom = '0'
-                wrapper.style.paddingTop = '0'
-                wrapper.style.paddingBottom = '0'
-                wrapper.style.visibility = 'visible' // CRITICAL: Ensure visible
-                wrapper.style.opacity = '1' // CRITICAL: Ensure fully opaque
-            }
-        }
-
-        // CRITICAL: Ensure image itself is visible and properly styled
+    allImages.forEach(img => {
+        // CRITICAL: Ensure image is visible and has proper dimensions
         img.style.pageBreakInside = 'avoid'
         img.style.breakInside = 'avoid'
+        img.style.pageBreakBefore = 'always'
+        img.style.breakBefore = 'page'
         img.style.display = 'block'
-        img.style.maxHeight = 'inherit' // Inherit from wrapper
-        img.style.objectFit = 'contain' // Preserve aspect ratio
-        img.style.marginTop = '0'
-        img.style.marginBottom = '0'
-        img.style.verticalAlign = 'top' // Align to top of container
-        img.style.visibility = 'visible' // CRITICAL: Ensure visible
-        img.style.opacity = '1' // CRITICAL: Ensure fully opaque
-        img.style.width = img.style.width || 'auto' // Preserve width if set
-        img.style.height = img.style.height || 'auto' // Preserve height if set
+        img.style.visibility = 'visible'
+        img.style.opacity = '1'
+        img.style.maxHeight = '650pt' // Limit to one page
+        img.style.objectFit = 'contain'
+
+        // Ensure image has width/height if they were set earlier
+        if (!img.style.width && img.getAttribute('width')) {
+            img.style.width = img.getAttribute('width') + 'px'
+        }
+        if (!img.style.height && img.getAttribute('height')) {
+            img.style.height = img.getAttribute('height') + 'px'
+        }
+
+        // Apply page break styles to parent containers
+        let parent = img.parentElement
+        while (parent && parent !== container) {
+            // Skip if already processed
+            if (parent.classList.contains('image-isolated-page')) {
+                break
+            }
+
+            // Apply to photo-report-container and other image containers
+            if (
+                parent.classList.contains('photo-report-container') ||
+                parent.tagName === 'DIV'
+            ) {
+                parent.style.pageBreakInside = 'avoid'
+                parent.style.breakInside = 'avoid'
+                parent.style.pageBreakBefore = 'always'
+                parent.style.breakBefore = 'page'
+                parent.style.maxHeight = '650pt'
+                parent.style.overflow = 'visible'
+                parent.style.visibility = 'visible'
+                parent.style.opacity = '1'
+            }
+            parent = parent.parentElement
+        }
     })
 
     // Force a reflow to ensure styles are applied before html2pdf captures the content
@@ -1513,62 +1474,49 @@ const PrintSection: FC<PrintSectionProps> = ({
                             : canvasHeight,
                         // Prevent image splitting by ensuring full capture
                         onclone: (clonedDoc: Document) => {
-                            // CRITICAL: Ensure spacers maintain their properties
-                            const spacers =
-                                clonedDoc.querySelectorAll('.image-page-spacer')
-                            spacers.forEach(spacer => {
-                                const el = spacer as HTMLElement
-                                el.style.height = '1px'
-                                el.style.display = 'block'
-                                el.style.pageBreakAfter = 'always'
-                                el.style.breakAfter = 'page'
-                                el.style.overflow = 'hidden'
-                            })
+                            // CRITICAL: Ensure all images are visible and have page break styles
+                            const clonedImages =
+                                clonedDoc.querySelectorAll('img')
+                            clonedImages.forEach(img => {
+                                const imgEl = img as HTMLElement
+                                imgEl.style.pageBreakInside = 'avoid'
+                                imgEl.style.breakInside = 'avoid'
+                                imgEl.style.pageBreakBefore = 'always'
+                                imgEl.style.breakBefore = 'page'
+                                imgEl.style.display = 'block'
+                                imgEl.style.visibility = 'visible'
+                                imgEl.style.opacity = '1'
+                                imgEl.style.maxHeight = '650pt'
 
-                            // CRITICAL: Find the correct wrapper class and ensure images are visible
-                            const clonedImages = clonedDoc.querySelectorAll(
-                                '.image-isolated-page',
-                            )
-                            clonedImages.forEach(wrapper => {
-                                const el = wrapper as HTMLElement
-                                // Force page break before to ensure image starts on new page
-                                el.style.pageBreakBefore = 'always'
-                                el.style.breakBefore = 'page'
-                                el.style.pageBreakInside = 'avoid'
-                                el.style.breakInside = 'avoid'
-                                el.style.display = 'block'
-                                el.style.overflow = 'visible' // CRITICAL: Must be visible
-                                el.style.visibility = 'visible' // CRITICAL: Must be visible
-                                el.style.opacity = '1' // CRITICAL: Must be fully opaque
-                                el.style.marginTop = '0'
-                                el.style.paddingTop = '0'
+                                // Ensure image dimensions are preserved
+                                if (
+                                    !imgEl.style.width &&
+                                    imgEl.getAttribute('width')
+                                ) {
+                                    imgEl.style.width =
+                                        imgEl.getAttribute('width') + 'px'
+                                }
+                                if (
+                                    !imgEl.style.height &&
+                                    imgEl.getAttribute('height')
+                                ) {
+                                    imgEl.style.height =
+                                        imgEl.getAttribute('height') + 'px'
+                                }
 
-                                // CRITICAL: Ensure the image inside is visible and properly sized
-                                const img = el.querySelector('img')
-                                if (img) {
-                                    const imgEl = img as HTMLElement
-                                    imgEl.style.pageBreakInside = 'avoid'
-                                    imgEl.style.breakInside = 'avoid'
-                                    imgEl.style.display = 'block'
-                                    imgEl.style.visibility = 'visible' // CRITICAL
-                                    imgEl.style.opacity = '1' // CRITICAL
-                                    imgEl.style.marginTop = '0'
-                                    imgEl.style.verticalAlign = 'top'
-                                    // Ensure image dimensions are preserved
+                                // Ensure parent containers are visible
+                                let parent = imgEl.parentElement
+                                while (parent && parent !== clonedDoc.body) {
                                     if (
-                                        !imgEl.style.width &&
-                                        imgEl.getAttribute('width')
+                                        parent.classList.contains(
+                                            'photo-report-container',
+                                        )
                                     ) {
-                                        imgEl.style.width =
-                                            imgEl.getAttribute('width') + 'px'
+                                        parent.style.visibility = 'visible'
+                                        parent.style.opacity = '1'
+                                        parent.style.overflow = 'visible'
                                     }
-                                    if (
-                                        !imgEl.style.height &&
-                                        imgEl.getAttribute('height')
-                                    ) {
-                                        imgEl.style.height =
-                                            imgEl.getAttribute('height') + 'px'
-                                    }
+                                    parent = parent.parentElement
                                 }
                             })
                         },
@@ -1584,15 +1532,12 @@ const PrintSection: FC<PrintSectionProps> = ({
                         autoPaging: 'text', // Let html2pdf.js handle pagination with avoid-all mode
                     },
                     pagebreak: {
-                        // CRITICAL: Use 'legacy' mode to recognize html2pdf__page-break class
-                        // and 'css' mode for CSS page-break properties
-                        // 'avoid-all' for automatic detection
+                        // CRITICAL: Use 'avoid-all' for automatic detection and 'css' for CSS properties
                         mode: ['avoid-all', 'css', 'legacy'],
-                        before: '.page-break-before, .html2pdf__page-break, .image-page-spacer',
-                        after: '.page-break-after, .html2pdf__page-break, .image-page-spacer',
+                        before: '.page-break-before',
+                        after: '.page-break-after',
                         avoid: [
                             'img',
-                            '.image-isolated-page',
                             '.photo-report-container',
                             '.photo-report-container img',
                             '.photo-report-container small', // Keep metadata with image
