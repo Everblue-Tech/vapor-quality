@@ -357,6 +357,7 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
         // Check if this child contains images or is an image container
         const hasImages = isImageContainer(child)
 
+        // CRITICAL: Images MUST always be in their own chunk to prevent splitting
         // For image containers, always start a new chunk to ensure they're not split
         // Also, if an image container is too large, it needs its own chunk
         const imageTooLarge = hasImages && childHeight > maxChunkHeight * 0.9
@@ -366,12 +367,14 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
             ? maxChunkHeight * 0.7 // More conservative for images
             : maxChunkHeight
 
+        // CRITICAL: Always start a new chunk for images - never put images with other content
         // Always start a new chunk for images if:
-        // 1. Current chunk has content (to avoid splitting images)
-        // 2. Image is too large to fit in current chunk
-        // 3. Image would exceed max height
+        // 1. This is an image (ALWAYS start new chunk)
+        // 2. Current chunk has content (to avoid splitting images)
+        // 3. Image is too large to fit in current chunk
+        // 4. Image would exceed max height
         const shouldStartNewChunk =
-            (hasImages && currentChunkHeight > 0) || // Always new chunk for images if current chunk has content
+            hasImages || // CRITICAL: ALWAYS new chunk for images
             imageTooLarge || // Image too large, needs its own chunk
             ((currentChunkHeight + childHeight > effectiveMaxHeight ||
                 childWidth > maxChunkWidth) &&
@@ -501,9 +504,28 @@ const generateChunkPDF = async (
             backgroundColor: '#ffffff',
             foreignObjectRendering: false,
             width: 800, // Limit canvas width
-            height: canvasHeight, // Dynamic height for image chunks
+            // CRITICAL: Use very large height for images to prevent splitting
+            height: hasImages ? Math.max(canvasHeight, 5000) : canvasHeight,
             windowWidth: 800,
-            windowHeight: canvasHeight,
+            windowHeight: hasImages
+                ? Math.max(canvasHeight, 5000)
+                : canvasHeight,
+            // Prevent image splitting by ensuring full capture
+            onclone: (clonedDoc: Document) => {
+                // Ensure all image wrappers maintain their page break settings
+                const clonedImages = clonedDoc.querySelectorAll(
+                    '.image-no-break-wrapper',
+                )
+                clonedImages.forEach(wrapper => {
+                    const el = wrapper as HTMLElement
+                    el.style.pageBreakBefore = 'always'
+                    el.style.breakBefore = 'page'
+                    el.style.pageBreakAfter = 'always'
+                    el.style.breakAfter = 'page'
+                    el.style.pageBreakInside = 'avoid'
+                    el.style.breakInside = 'avoid'
+                })
+            },
         },
         jsPDF: {
             unit: 'pt',
@@ -515,9 +537,16 @@ const generateChunkPDF = async (
         },
         pagebreak: {
             mode: ['css', 'legacy'],
-            before: '.page-break-before',
-            after: '.page-break-after',
-            avoid: ['.page-break-avoid', 'img', '.photo-report-container'],
+            before: '.page-break-before, [data-page-break="before"], .image-no-break-wrapper',
+            after: '.page-break-after, [data-page-break="after"], .image-no-break-wrapper',
+            avoid: [
+                '.page-break-avoid',
+                '[data-page-break="always"]',
+                'img',
+                '.photo-report-container',
+                '.image-no-break-wrapper',
+                '.full-page-image',
+            ],
         },
     }
 
@@ -877,17 +906,32 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
     // Wrap ALL images in no-break wrappers to prevent page breaks
     // CRITICAL: Give ALL images their own page to prevent any splitting or squashing
     const allImages = container.querySelectorAll('img')
-    allImages.forEach(img => {
+    allImages.forEach((img, index) => {
         const imgElement = img as HTMLImageElement
+
+        // Insert explicit page break BEFORE image (except for first image)
+        if (index > 0) {
+            const pageBreakBefore = document.createElement('div')
+            pageBreakBefore.className = 'page-break-before'
+            pageBreakBefore.style.pageBreakBefore = 'always'
+            pageBreakBefore.style.breakBefore = 'page'
+            pageBreakBefore.style.height = '0'
+            pageBreakBefore.style.margin = '0'
+            pageBreakBefore.style.padding = '0'
+            pageBreakBefore.style.border = 'none'
+            pageBreakBefore.setAttribute('data-page-break', 'before')
+            img.parentNode?.insertBefore(pageBreakBefore, img)
+        }
 
         // Create a wrapper div if it doesn't exist
         if (!img.parentElement?.classList.contains('image-no-break-wrapper')) {
             const wrapper = document.createElement('div')
-            wrapper.className = 'image-no-break-wrapper'
+            wrapper.className = 'image-no-break-wrapper page-break-avoid'
             wrapper.style.display = 'block'
             wrapper.style.width = '100%'
             wrapper.style.maxWidth = '100%'
             wrapper.style.overflow = 'visible'
+            wrapper.style.position = 'relative'
 
             // CRITICAL: Force ALL images to get their own page to prevent splitting
             wrapper.style.pageBreakBefore = 'always'
@@ -897,6 +941,7 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
             wrapper.style.pageBreakInside = 'avoid'
             wrapper.style.breakInside = 'avoid'
             wrapper.classList.add('full-page-image')
+            wrapper.setAttribute('data-page-break', 'always')
 
             // Ensure wrapper height matches image height
             if (imgElement.offsetHeight > 0) {
@@ -915,9 +960,22 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 wrapper.style.breakAfter = 'page'
                 wrapper.style.pageBreakInside = 'avoid'
                 wrapper.style.breakInside = 'avoid'
-                wrapper.classList.add('full-page-image')
+                wrapper.classList.add('full-page-image', 'page-break-avoid')
+                wrapper.setAttribute('data-page-break', 'always')
             }
         }
+
+        // Insert explicit page break AFTER image
+        const pageBreakAfter = document.createElement('div')
+        pageBreakAfter.className = 'page-break-after'
+        pageBreakAfter.style.pageBreakAfter = 'always'
+        pageBreakAfter.style.breakAfter = 'page'
+        pageBreakAfter.style.height = '0'
+        pageBreakAfter.style.margin = '0'
+        pageBreakAfter.style.padding = '0'
+        pageBreakAfter.style.border = 'none'
+        pageBreakAfter.setAttribute('data-page-break', 'after')
+        img.parentNode?.insertBefore(pageBreakAfter, img.nextSibling)
     })
 
     // Force a reflow to ensure styles are applied before html2pdf captures the content
@@ -1424,9 +1482,30 @@ const PrintSection: FC<PrintSectionProps> = ({
                         backgroundColor: '#ffffff', // Ensure white background
                         foreignObjectRendering: false, // Keep disabled for stability
                         width: 800, // Limit canvas width
-                        height: canvasHeight, // Dynamic height for images
+                        // CRITICAL: Use very large height for images to prevent splitting
+                        height: hasImages
+                            ? Math.max(canvasHeight, 5000)
+                            : canvasHeight,
                         windowWidth: 800,
-                        windowHeight: canvasHeight,
+                        windowHeight: hasImages
+                            ? Math.max(canvasHeight, 5000)
+                            : canvasHeight,
+                        // Prevent image splitting by ensuring full capture
+                        onclone: (clonedDoc: Document) => {
+                            // Ensure all image wrappers maintain their page break settings
+                            const clonedImages = clonedDoc.querySelectorAll(
+                                '.image-no-break-wrapper',
+                            )
+                            clonedImages.forEach(wrapper => {
+                                const el = wrapper as HTMLElement
+                                el.style.pageBreakBefore = 'always'
+                                el.style.breakBefore = 'page'
+                                el.style.pageBreakAfter = 'always'
+                                el.style.breakAfter = 'page'
+                                el.style.pageBreakInside = 'avoid'
+                                el.style.breakInside = 'avoid'
+                            })
+                        },
                     },
                     jsPDF: {
                         unit: 'pt',
@@ -1439,13 +1518,15 @@ const PrintSection: FC<PrintSectionProps> = ({
                     },
                     pagebreak: {
                         mode: ['css', 'legacy'], // Use both modes for better compatibility
-                        before: '.page-break-before',
-                        after: '.page-break-after',
+                        before: '.page-break-before, [data-page-break="before"], .image-no-break-wrapper',
+                        after: '.page-break-after, [data-page-break="after"], .image-no-break-wrapper',
                         avoid: [
                             '.page-break-avoid',
+                            '[data-page-break="always"]',
                             'img',
                             '.photo-report-container',
                             '.image-no-break-wrapper',
+                            '.full-page-image',
                             '.photo-report-container img',
                             '.photo-report-container small', // Keep metadata with image
                             'p', // Prevent paragraph breaks
