@@ -791,24 +791,29 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Calculate target size (80% of page as requested) in PDF points
-    const maxImageWidthPt = contentWidth * 0.8
-    const maxImageHeightPt = contentHeight * 0.8
+    // Calculate target size (70% of page height as requested) in PDF points
+    const maxImageHeightPt = contentHeight * 0.7
+    // Width should also be constrained to 70% to maintain proportions
+    const maxImageWidthPt = contentWidth * 0.7
 
     // Use natural image dimensions to calculate scaling
     const imageAspectRatio = img.naturalWidth / img.naturalHeight
     let targetWidthPt = maxImageWidthPt
     let targetHeightPt = maxImageWidthPt / imageAspectRatio
 
-    // If height exceeds max, scale by height instead
+    // If height exceeds max (70% of page height), scale by height instead
     if (targetHeightPt > maxImageHeightPt) {
         targetHeightPt = maxImageHeightPt
         targetWidthPt = maxImageHeightPt * imageAspectRatio
     }
 
-    // Ensure dimensions don't exceed maximums (safety check)
+    // Ensure dimensions don't exceed maximums (strict safety check)
     targetWidthPt = Math.min(targetWidthPt, maxImageWidthPt)
     targetHeightPt = Math.min(targetHeightPt, maxImageHeightPt)
+
+    // Additional check: ensure width doesn't exceed content width
+    targetWidthPt = Math.min(targetWidthPt, contentWidth)
+    targetHeightPt = Math.min(targetHeightPt, contentHeight)
 
     // Create a new page for this image (BEFORE rendering)
     pdf.addPage()
@@ -861,25 +866,62 @@ const renderImageContainerToPDF = async (
     // Convert to image data
     const imgData = canvas.toDataURL('image/jpeg', 0.98)
 
-    // Add to PDF using exact target dimensions (in points)
-    // Ensure we don't exceed the page boundaries
-    const finalWidthPt = Math.min(targetWidthPt, maxImageWidthPt)
-    const finalHeightPt = Math.min(targetHeightPt, maxImageHeightPt)
+    // Final dimensions - ensure they don't exceed any boundaries
+    const finalWidthPt = Math.min(
+        targetWidthPt,
+        maxImageWidthPt,
+        contentWidth,
+        pdfWidth - margin * 2,
+    )
+    const finalHeightPt = Math.min(
+        targetHeightPt,
+        maxImageHeightPt,
+        contentHeight,
+        pdfHeight - margin * 2,
+    )
+
+    // Calculate centered position
     const x = margin + (contentWidth - finalWidthPt) / 2
     const y = margin + (contentHeight - finalHeightPt) / 2
 
-    // Ensure x and y are within page bounds
-    const finalX = Math.max(
-        margin,
-        Math.min(x, pdfWidth - margin - finalWidthPt),
-    )
-    const finalY = Math.max(
-        margin,
-        Math.min(y, pdfHeight - margin - finalHeightPt),
-    )
+    // Strict boundary checks - ensure image stays within page margins
+    // Calculate maximum allowed positions
+    const maxX = pdfWidth - margin - finalWidthPt
+    const maxY = pdfHeight - margin - finalHeightPt
 
-    // Add image to PDF - this should fit exactly on one page without overflow
-    pdf.addImage(imgData, 'JPEG', finalX, finalY, finalWidthPt, finalHeightPt)
+    // Clamp position to ensure no overflow
+    const finalX = Math.max(margin, Math.min(x, maxX))
+    const finalY = Math.max(margin, Math.min(y, maxY))
+
+    // Final validation: ensure image fits completely within page
+    if (
+        finalX < margin ||
+        finalY < margin ||
+        finalX + finalWidthPt > pdfWidth - margin ||
+        finalY + finalHeightPt > pdfHeight - margin
+    ) {
+        console.warn(
+            `Image would overflow page bounds. Adjusting size. Original: ${finalWidthPt}x${finalHeightPt}, Page: ${pdfWidth}x${pdfHeight}, Margin: ${margin}`,
+        )
+        // If still would overflow, reduce size further
+        const maxAllowedWidth = pdfWidth - margin * 2
+        const maxAllowedHeight = pdfHeight - margin * 2
+        const finalWidth = Math.min(finalWidthPt, maxAllowedWidth)
+        const finalHeight = Math.min(finalHeightPt, maxAllowedHeight)
+
+        // Add image to PDF with safe dimensions
+        pdf.addImage(imgData, 'JPEG', margin, margin, finalWidth, finalHeight)
+    } else {
+        // Add image to PDF - this should fit exactly on one page without overflow
+        pdf.addImage(
+            imgData,
+            'JPEG',
+            finalX,
+            finalY,
+            finalWidthPt,
+            finalHeightPt,
+        )
+    }
 }
 
 /**
