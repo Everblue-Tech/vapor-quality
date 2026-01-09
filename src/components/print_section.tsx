@@ -543,10 +543,10 @@ const generateChunkPDF = async (
             autoPaging: 'text', // Let html2pdf.js handle pagination with avoid-all mode
         },
         pagebreak: {
-            // CRITICAL: 'avoid-all' automatically prevents elements from splitting across pages
+            // CRITICAL: Use 'legacy' mode to recognize html2pdf__page-break class
             mode: ['avoid-all', 'css', 'legacy'],
-            before: '.page-break-before',
-            after: '.page-break-after',
+            before: '.page-break-before, .html2pdf__page-break, .image-page-spacer',
+            after: '.page-break-after, .html2pdf__page-break, .image-page-spacer',
             avoid: [
                 'img',
                 '.image-isolated-page',
@@ -912,21 +912,24 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
     await Promise.all(imagePromises)
 
     // CRITICAL: Wrap ALL images in containers that force page breaks and prevent splitting
-    // The key is to ensure each image container is smaller than one page and forces a break before it
+    // The solution: Add a large spacer before each image to force it to start at the TOP of a new page
     const allImages = container.querySelectorAll('img')
     allImages.forEach((img, index) => {
-        // Insert a page break marker BEFORE the image (except first image)
-        if (index > 0) {
-            const pageBreakMarker = document.createElement('div')
-            pageBreakMarker.className = 'html2pdf__page-break'
-            pageBreakMarker.style.height = '0'
-            pageBreakMarker.style.margin = '0'
-            pageBreakMarker.style.padding = '0'
-            pageBreakMarker.style.border = 'none'
-            pageBreakMarker.style.pageBreakBefore = 'always'
-            pageBreakMarker.style.breakBefore = 'page'
-            img.parentNode?.insertBefore(pageBreakMarker, img)
-        }
+        // CRITICAL: Insert a large spacer BEFORE the image to force it to the next page
+        // This ensures the image starts at the TOP of a new page, not in the middle
+        const spacer = document.createElement('div')
+        spacer.className = 'html2pdf__page-break image-page-spacer'
+        // Use a height that's close to one full page to force a break
+        // A4 page height in pixels: ~1123px at 96dpi
+        spacer.style.height = '1000px' // Large enough to force page break
+        spacer.style.display = 'block'
+        spacer.style.pageBreakAfter = 'always'
+        spacer.style.breakAfter = 'page'
+        spacer.style.margin = '0'
+        spacer.style.padding = '0'
+        spacer.style.border = 'none'
+        spacer.style.visibility = 'hidden' // Hide but still take up space
+        img.parentNode?.insertBefore(spacer, img)
 
         // Create a wrapper div if it doesn't exist
         if (!img.parentElement?.classList.contains('image-isolated-page')) {
@@ -935,8 +938,8 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
 
             // CRITICAL: Set maximum height to less than one page to prevent splitting
             // A4 page: 842pt height, with 15pt margins = 812pt usable
-            // Use 85% of that = ~690pt to ensure it fits
-            const maxPageHeightPt = 690 // 85% of usable page height
+            // Use 80% of that = ~650pt to ensure it fits with buffer
+            const maxPageHeightPt = 650 // 80% of usable page height for safety
             const scaleFactor = 800 / 595 // html2canvas scale
             const maxPageHeightPx = maxPageHeightPt * scaleFactor
 
@@ -951,6 +954,8 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
             wrapper.style.position = 'relative'
             wrapper.style.marginTop = '0'
             wrapper.style.marginBottom = '0'
+            wrapper.style.paddingTop = '0'
+            wrapper.style.paddingBottom = '0'
 
             img.parentNode?.insertBefore(wrapper, img)
             wrapper.appendChild(img)
@@ -958,7 +963,7 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
             // If wrapper exists, ensure it has the height limit
             const wrapper = img.parentElement
             if (wrapper) {
-                const maxPageHeightPt = 690
+                const maxPageHeightPt = 650
                 const scaleFactor = 800 / 595
                 const maxPageHeightPx = maxPageHeightPt * scaleFactor
                 wrapper.style.maxHeight = `${maxPageHeightPx}px`
@@ -967,6 +972,10 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 wrapper.style.breakInside = 'avoid'
                 wrapper.style.pageBreakBefore = 'always'
                 wrapper.style.breakBefore = 'page'
+                wrapper.style.marginTop = '0'
+                wrapper.style.marginBottom = '0'
+                wrapper.style.paddingTop = '0'
+                wrapper.style.paddingBottom = '0'
             }
         }
 
@@ -976,6 +985,9 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
         img.style.display = 'block'
         img.style.maxHeight = 'inherit' // Inherit from wrapper
         img.style.objectFit = 'contain' // Preserve aspect ratio
+        img.style.marginTop = '0'
+        img.style.marginBottom = '0'
+        img.style.verticalAlign = 'top' // Align to top of container
     })
 
     // Force a reflow to ensure styles are applied before html2pdf captures the content
@@ -1492,6 +1504,18 @@ const PrintSection: FC<PrintSectionProps> = ({
                             : canvasHeight,
                         // Prevent image splitting by ensuring full capture
                         onclone: (clonedDoc: Document) => {
+                            // CRITICAL: Ensure spacers maintain their height and page break properties
+                            const spacers =
+                                clonedDoc.querySelectorAll('.image-page-spacer')
+                            spacers.forEach(spacer => {
+                                const el = spacer as HTMLElement
+                                el.style.height = '1000px'
+                                el.style.display = 'block'
+                                el.style.pageBreakAfter = 'always'
+                                el.style.breakAfter = 'page'
+                                el.style.visibility = 'hidden'
+                            })
+
                             // CRITICAL: Find the correct wrapper class and ensure page breaks
                             const clonedImages = clonedDoc.querySelectorAll(
                                 '.image-isolated-page',
@@ -1504,6 +1528,8 @@ const PrintSection: FC<PrintSectionProps> = ({
                                 el.style.pageBreakInside = 'avoid'
                                 el.style.breakInside = 'avoid'
                                 el.style.display = 'block'
+                                el.style.marginTop = '0'
+                                el.style.paddingTop = '0'
 
                                 // Also ensure the image inside has the same settings
                                 const img = el.querySelector('img')
@@ -1512,6 +1538,8 @@ const PrintSection: FC<PrintSectionProps> = ({
                                     imgEl.style.pageBreakInside = 'avoid'
                                     imgEl.style.breakInside = 'avoid'
                                     imgEl.style.display = 'block'
+                                    imgEl.style.marginTop = '0'
+                                    imgEl.style.verticalAlign = 'top'
                                 }
                             })
                         },
@@ -1527,10 +1555,12 @@ const PrintSection: FC<PrintSectionProps> = ({
                         autoPaging: 'text', // Let html2pdf.js handle pagination with avoid-all mode
                     },
                     pagebreak: {
-                        // CRITICAL: 'avoid-all' automatically prevents elements from splitting across pages
+                        // CRITICAL: Use 'legacy' mode to recognize html2pdf__page-break class
+                        // and 'css' mode for CSS page-break properties
+                        // 'avoid-all' for automatic detection
                         mode: ['avoid-all', 'css', 'legacy'],
-                        before: '.page-break-before',
-                        after: '.page-break-after',
+                        before: '.page-break-before, .html2pdf__page-break, .image-page-spacer',
+                        after: '.page-break-after, .html2pdf__page-break, .image-page-spacer',
                         avoid: [
                             'img',
                             '.image-isolated-page',
