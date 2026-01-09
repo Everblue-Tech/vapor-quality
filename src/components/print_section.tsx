@@ -791,11 +791,11 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Calculate target size (65% of page height to prevent overflow) in PDF points
-    // Using 65% instead of 70% to add safety margin
-    const maxImageHeightPt = contentHeight * 0.65
-    // Width should also be constrained to 65% to maintain proportions
-    const maxImageWidthPt = contentWidth * 0.65
+    // Calculate target size (60% of page height to prevent overflow) in PDF points
+    // Using 60% to add significant safety margin and prevent any overflow
+    const maxImageHeightPt = contentHeight * 0.6
+    // Width should also be constrained to 60% to maintain proportions
+    const maxImageWidthPt = contentWidth * 0.6
 
     // Use natural image dimensions to calculate scaling
     const imageAspectRatio = img.naturalWidth / img.naturalHeight
@@ -831,10 +831,19 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Set canvas size to match target PDF size (in pixels)
+    // Calculate available space FIRST to ensure we don't exceed it
+    const availableWidth = pdfWidth - margin * 2
+    const availableHeight = pdfHeight - margin * 2
+
+    // Ensure target dimensions don't exceed available space
+    const safeTargetWidthPt = Math.min(targetWidthPt, availableWidth)
+    const safeTargetHeightPt = Math.min(targetHeightPt, availableHeight)
+
+    // Set canvas size to match safe target PDF size (in pixels)
     // Convert PDF points to pixels: 1pt = 96/72 px = 1.333px
-    const targetWidthPx = Math.floor(targetWidthPt * (96 / 72))
-    const targetHeightPx = Math.floor(targetHeightPt * (96 / 72))
+    // Use the SAFE dimensions to ensure no overflow
+    const targetWidthPx = Math.floor(safeTargetWidthPt * (96 / 72))
+    const targetHeightPx = Math.floor(safeTargetHeightPt * (96 / 72))
     canvas.width = targetWidthPx
     canvas.height = targetHeightPx
 
@@ -870,21 +879,23 @@ const renderImageContainerToPDF = async (
     // Convert to image data
     const imgData = canvas.toDataURL('image/jpeg', 0.98)
 
-    // Calculate available space (strict - account for all margins)
-    const availableWidth = pdfWidth - margin * 2
-    const availableHeight = pdfHeight - margin * 2
+    // Final dimensions MUST match canvas dimensions exactly
+    // Convert canvas pixels back to PDF points to ensure exact match
+    // Canvas was created with: targetWidthPx = safeTargetWidthPt * (96/72)
+    // So: safeTargetWidthPt = targetWidthPx * (72/96)
+    const canvasWidthPt = (canvas.width * 72) / 96
+    const canvasHeightPt = (canvas.height * 72) / 96
 
-    // Final dimensions - ensure they don't exceed any boundaries
-    // Use Math.floor to prevent any fractional pixels that could cause overflow
+    // Double-check: ensure final dimensions don't exceed available space
     const finalWidthPt = Math.floor(
-        Math.min(targetWidthPt, maxImageWidthPt, contentWidth, availableWidth),
+        Math.min(canvasWidthPt, availableWidth, maxImageWidthPt, contentWidth),
     )
     const finalHeightPt = Math.floor(
         Math.min(
-            targetHeightPt,
+            canvasHeightPt,
+            availableHeight,
             maxImageHeightPt,
             contentHeight,
-            availableHeight,
         ),
     )
 
@@ -894,7 +905,7 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Verify dimensions fit within available space
+    // Verify dimensions fit within available space (strict check)
     if (finalWidthPt > availableWidth || finalHeightPt > availableHeight) {
         console.warn(
             `Image too large, reducing. Requested: ${finalWidthPt}x${finalHeightPt}, Available: ${availableWidth}x${availableHeight}`,
@@ -964,34 +975,50 @@ const renderImageContainerToPDF = async (
     const finalY = Math.floor(Math.max(margin, Math.min(y, maxY)))
 
     // Final validation: ensure image fits completely within page
-    // Check all four corners
+    // Check all four corners with strict validation
     const rightEdge = finalX + finalWidthPt
     const bottomEdge = finalY + finalHeightPt
     const maxRight = pdfWidth - margin
     const maxBottom = pdfHeight - margin
 
+    // Use the EXACT canvas dimensions converted to points
+    // This ensures the PDF image matches the canvas exactly
+    const pdfImageWidth = (canvas.width * 72) / 96
+    const pdfImageHeight = (canvas.height * 72) / 96
+
+    // Final safety check: ensure dimensions don't exceed available space
+    const finalPdfWidth = Math.floor(Math.min(pdfImageWidth, availableWidth))
+    const finalPdfHeight = Math.floor(Math.min(pdfImageHeight, availableHeight))
+
+    // Verify position is safe
     if (
         finalX < margin ||
         finalY < margin ||
-        rightEdge > maxRight ||
-        bottomEdge > maxBottom
+        finalX + finalPdfWidth > maxRight ||
+        finalY + finalPdfHeight > maxBottom
     ) {
         console.warn(
-            `Image would overflow. X: ${finalX}, Y: ${finalY}, W: ${finalWidthPt}, H: ${finalHeightPt}, Right: ${rightEdge}, Bottom: ${bottomEdge}, MaxRight: ${maxRight}, MaxBottom: ${maxBottom}`,
+            `Image position unsafe. Using safe position. X: ${finalX}, Y: ${finalY}, W: ${finalPdfWidth}, H: ${finalPdfHeight}`,
         )
         // Force to top-left corner with safe dimensions
-        const safeWidth = Math.floor(Math.min(finalWidthPt, availableWidth))
-        const safeHeight = Math.floor(Math.min(finalHeightPt, availableHeight))
-        pdf.addImage(imgData, 'JPEG', margin, margin, safeWidth, safeHeight)
+        pdf.addImage(
+            imgData,
+            'JPEG',
+            margin,
+            margin,
+            finalPdfWidth,
+            finalPdfHeight,
+        )
     } else {
-        // Add image to PDF - verified to fit exactly on one page without overflow
+        // Add image to PDF - using exact canvas dimensions converted to points
+        // This ensures no overflow
         pdf.addImage(
             imgData,
             'JPEG',
             finalX,
             finalY,
-            finalWidthPt,
-            finalHeightPt,
+            finalPdfWidth,
+            finalPdfHeight,
         )
     }
 }
