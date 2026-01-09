@@ -609,6 +609,31 @@ const generatePDFWithImageHandling = async (
                 currentTextElements = []
             }
 
+            // Extract text content from this child (like Card.Title, Card.Text)
+            // but exclude photo-report-containers
+            const textElements: HTMLElement[] = []
+            Array.from(child.children).forEach(grandchild => {
+                const grandchildEl = grandchild as HTMLElement
+                const isPhotoContainer =
+                    grandchildEl.classList.contains('photo-report-container') ||
+                    grandchildEl.querySelector('.photo-report-container') !==
+                        null
+                if (!isPhotoContainer) {
+                    textElements.push(grandchildEl)
+                }
+            })
+
+            // Render text content first (if any)
+            if (textElements.length > 0) {
+                await renderTextContentToPDF(
+                    pdf,
+                    textElements,
+                    contentWidth,
+                    contentHeight,
+                    margin,
+                )
+            }
+
             // Render each photo container on its own page
             const photoContainersInChild = Array.from(
                 child.querySelectorAll('.photo-report-container'),
@@ -749,24 +774,27 @@ const renderImageContainerToPDF = async (
     }
 
     // Calculate target size (80% of page as requested)
-    const maxImageWidth = contentWidth * 0.8
-    const maxImageHeight = contentHeight * 0.8
+    // Convert to pixels for html2canvas (assuming 96dpi: 1pt = 1.33px)
+    const maxImageWidthPt = contentWidth * 0.8
+    const maxImageHeightPt = contentHeight * 0.8
+    const maxImageWidthPx = maxImageWidthPt * (96 / 72)
+    const maxImageHeightPx = maxImageHeightPt * (96 / 72)
 
-    // Calculate aspect ratio and scale to fit
+    // Calculate aspect ratio and scale to fit within 80% of page
     const imageAspectRatio = img.naturalWidth / img.naturalHeight
-    let targetWidth = maxImageWidth
-    let targetHeight = maxImageWidth / imageAspectRatio
+    let targetWidthPx = maxImageWidthPx
+    let targetHeightPx = maxImageWidthPx / imageAspectRatio
 
     // If height exceeds max, scale by height instead
-    if (targetHeight > maxImageHeight) {
-        targetHeight = maxImageHeight
-        targetWidth = maxImageHeight * imageAspectRatio
+    if (targetHeightPx > maxImageHeightPx) {
+        targetHeightPx = maxImageHeightPx
+        targetWidthPx = maxImageHeightPx * imageAspectRatio
     }
 
     // Create a temporary container with just the image, sized correctly
     const tempContainer = document.createElement('div')
-    tempContainer.style.width = `${targetWidth}px`
-    tempContainer.style.height = `${targetHeight}px`
+    tempContainer.style.width = `${targetWidthPx}px`
+    tempContainer.style.height = `${targetHeightPx}px`
     tempContainer.style.display = 'block'
     tempContainer.style.visibility = 'visible'
     tempContainer.style.position = 'absolute'
@@ -774,9 +802,10 @@ const renderImageContainerToPDF = async (
     tempContainer.style.top = '0'
     tempContainer.style.backgroundColor = '#ffffff'
     tempContainer.style.overflow = 'hidden'
+    tempContainer.style.boxSizing = 'border-box'
     document.body.appendChild(tempContainer)
 
-    // Clone and size the image
+    // Clone and size the image to fit exactly within container
     const imgClone = img.cloneNode(true) as HTMLImageElement
     imgClone.style.width = '100%'
     imgClone.style.height = '100%'
@@ -784,11 +813,12 @@ const renderImageContainerToPDF = async (
     imgClone.style.display = 'block'
     imgClone.style.margin = '0'
     imgClone.style.padding = '0'
+    imgClone.style.boxSizing = 'border-box'
     tempContainer.appendChild(imgClone)
 
     try {
-        // Wait a moment for image to render
-        await new Promise(resolve => setTimeout(resolve, 100))
+        // Wait for image to fully load and render
+        await new Promise(resolve => setTimeout(resolve, 200))
 
         pdf.addPage()
 
@@ -800,17 +830,16 @@ const renderImageContainerToPDF = async (
             logging: false,
             imageTimeout: 15000,
             removeContainer: false,
-            width: targetWidth,
-            height: targetHeight,
+            width: targetWidthPx,
+            height: targetHeightPx,
         })
 
         const imgData = canvas.toDataURL('image/jpeg', 0.98)
 
-        // html2canvas with scale 1.2 creates a canvas that's 1.2x the element size
-        // jsPDF uses points (72 points per inch)
-        // At 96dpi: 1px = 0.75pt, but with scale 1.2: canvas pixels = 1.2 * element pixels
-        // So: element pixels = canvas pixels / 1.2
-        // PDF points = element pixels * (72/96) = (canvas pixels / 1.2) * (72/96)
+        // Convert canvas pixels to PDF points
+        // html2canvas with scale 1.2: canvas pixels = 1.2 * element pixels
+        // So element pixels = canvas pixels / 1.2
+        // PDF points = element pixels * (72/96)
         const scaleFactor = 1.2
         const elementWidthPx = canvas.width / scaleFactor
         const elementHeightPx = canvas.height / scaleFactor
@@ -818,8 +847,8 @@ const renderImageContainerToPDF = async (
         const pdfHeightPt = elementHeightPx * (72 / 96)
 
         // Ensure it fits within 80% of page (double-check to prevent overflow)
-        const finalWidth = Math.min(pdfWidthPt, maxImageWidth)
-        const finalHeight = Math.min(pdfHeightPt, maxImageHeight)
+        const finalWidth = Math.min(pdfWidthPt, maxImageWidthPt)
+        const finalHeight = Math.min(pdfHeightPt, maxImageHeightPt)
 
         // Center on page
         const x = margin + (contentWidth - finalWidth) / 2
