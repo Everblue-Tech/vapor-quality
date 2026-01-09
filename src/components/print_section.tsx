@@ -793,15 +793,13 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 // A4 page dimensions in points (595 x 842)
                 // Leave margins: 15pt on each side = 30pt total
                 const maxPageWidth = 565 // 595 - 30 (margins)
-                // Full page height minus margins for large images that get their own page
-                const fullPageHeight = 812 // 842 - 30 (margins)
+                const maxPageHeight = 812 // 842 - 30 (margins)
 
                 // CRITICAL: Calculate aspect ratio from natural dimensions
                 const naturalAspectRatio = img.naturalWidth / img.naturalHeight
-                const isPortrait = naturalAspectRatio < 1 // Image is taller than wide
 
                 console.log(
-                    `Image: ${img.naturalWidth}x${img.naturalHeight}px, Aspect ratio: ${naturalAspectRatio.toFixed(3)}, Portrait: ${isPortrait}`,
+                    `Image: ${img.naturalWidth}x${img.naturalHeight}px, Aspect ratio: ${naturalAspectRatio.toFixed(3)}`,
                 )
 
                 // For html2pdf.js, convert points to pixels
@@ -810,26 +808,30 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 const pageWidthPt = 595 // Full A4 width in points
                 const scaleFactor = html2canvasWidth / pageWidthPt // ≈ 1.345
 
-                // Give ALL large images their own full page to prevent squashing and splitting
-                // Calculate dimensions to fill the full page while preserving aspect ratio
-                let targetWidth = maxPageWidth
-                let targetHeight = maxPageWidth / naturalAspectRatio
+                // SIMPLE APPROACH: Scale large images to 85% of page size, preserve aspect ratio
+                // This ensures they fit on one page and prevents splitting
+                const targetPageWidth = maxPageWidth * 0.85 // 85% of available width
+                const targetPageHeight = maxPageHeight * 0.85 // 85% of available height
 
-                // If height exceeds full page height, scale by height
-                if (targetHeight > fullPageHeight) {
-                    targetHeight = fullPageHeight
-                    targetWidth = fullPageHeight * naturalAspectRatio
+                // Calculate dimensions to fit within 85% of page while preserving aspect ratio
+                let targetWidth = targetPageWidth
+                let targetHeight = targetPageWidth / naturalAspectRatio
+
+                // If height exceeds 85% of page height, scale by height instead
+                if (targetHeight > targetPageHeight) {
+                    targetHeight = targetPageHeight
+                    targetWidth = targetPageHeight * naturalAspectRatio
                 }
 
                 console.log(
-                    `Large image gets full page: ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt (preserving aspect ratio ${naturalAspectRatio.toFixed(3)})`,
+                    `Image scaled to 85% of page: ${targetWidth.toFixed(0)}x${targetHeight.toFixed(0)}pt (preserving aspect ratio ${naturalAspectRatio.toFixed(3)})`,
                 )
 
                 // Convert to pixels
                 const targetWidthPx = targetWidth * scaleFactor
                 const targetHeightPx = targetHeight * scaleFactor
 
-                // Set dimensions to fill page while preserving aspect ratio
+                // Set dimensions to 85% of page while preserving aspect ratio
                 img.style.width = `${targetWidthPx}px`
                 img.style.height = `${targetHeightPx}px`
                 img.style.maxWidth = `${targetWidthPx}px`
