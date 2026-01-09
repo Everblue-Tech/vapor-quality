@@ -539,7 +539,8 @@ const generateChunkPDF = async (
             orientation: 'portrait',
             compress: false,
             putOnlyUsedFonts: true,
-            autoPaging: hasImages ? false : 'text', // Disable autoPaging for image chunks to prevent splitting
+            // CRITICAL: Keep autoPaging enabled - html2pdf.js needs it to handle page breaks correctly
+            autoPaging: 'text', // Let html2pdf.js handle pagination with avoid-all mode
         },
         pagebreak: {
             // CRITICAL: 'avoid-all' automatically prevents elements from splitting across pages
@@ -910,30 +911,58 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
     // Wait for all images to be processed
     await Promise.all(imagePromises)
 
-    // Wrap ALL images in containers with page-break-inside: avoid
-    // This is the recommended approach per html2pdf.js documentation
+    // CRITICAL: Wrap ALL images in containers that force page breaks and prevent splitting
+    // The key is to ensure each image container is smaller than one page and forces a break before it
     const allImages = container.querySelectorAll('img')
-    allImages.forEach(img => {
+    allImages.forEach((img, index) => {
+        // Insert a page break marker BEFORE the image (except first image)
+        if (index > 0) {
+            const pageBreakMarker = document.createElement('div')
+            pageBreakMarker.className = 'html2pdf__page-break'
+            pageBreakMarker.style.height = '0'
+            pageBreakMarker.style.margin = '0'
+            pageBreakMarker.style.padding = '0'
+            pageBreakMarker.style.border = 'none'
+            pageBreakMarker.style.pageBreakBefore = 'always'
+            pageBreakMarker.style.breakBefore = 'page'
+            img.parentNode?.insertBefore(pageBreakMarker, img)
+        }
+
         // Create a wrapper div if it doesn't exist
         if (!img.parentElement?.classList.contains('image-isolated-page')) {
             const wrapper = document.createElement('div')
             wrapper.className = 'image-isolated-page'
 
-            // CRITICAL: Use page-break-inside: avoid as recommended by html2pdf.js docs
+            // CRITICAL: Set maximum height to less than one page to prevent splitting
+            // A4 page: 842pt height, with 15pt margins = 812pt usable
+            // Use 85% of that = ~690pt to ensure it fits
+            const maxPageHeightPt = 690 // 85% of usable page height
+            const scaleFactor = 800 / 595 // html2canvas scale
+            const maxPageHeightPx = maxPageHeightPt * scaleFactor
+
             wrapper.style.pageBreakInside = 'avoid'
             wrapper.style.breakInside = 'avoid'
             wrapper.style.pageBreakBefore = 'always'
             wrapper.style.breakBefore = 'page'
+            wrapper.style.maxHeight = `${maxPageHeightPx}px` // CRITICAL: Hard limit
+            wrapper.style.overflow = 'hidden' // Prevent overflow
             wrapper.style.display = 'block'
             wrapper.style.width = '100%'
             wrapper.style.position = 'relative'
+            wrapper.style.marginTop = '0'
+            wrapper.style.marginBottom = '0'
 
             img.parentNode?.insertBefore(wrapper, img)
             wrapper.appendChild(img)
         } else {
-            // If wrapper exists, ensure it has page break settings
+            // If wrapper exists, ensure it has the height limit
             const wrapper = img.parentElement
             if (wrapper) {
+                const maxPageHeightPt = 690
+                const scaleFactor = 800 / 595
+                const maxPageHeightPx = maxPageHeightPt * scaleFactor
+                wrapper.style.maxHeight = `${maxPageHeightPx}px`
+                wrapper.style.overflow = 'hidden'
                 wrapper.style.pageBreakInside = 'avoid'
                 wrapper.style.breakInside = 'avoid'
                 wrapper.style.pageBreakBefore = 'always'
@@ -941,10 +970,12 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
             }
         }
 
-        // Ensure image itself has page-break-inside: avoid
+        // Ensure image itself is constrained and has page-break-inside: avoid
         img.style.pageBreakInside = 'avoid'
         img.style.breakInside = 'avoid'
         img.style.display = 'block'
+        img.style.maxHeight = 'inherit' // Inherit from wrapper
+        img.style.objectFit = 'contain' // Preserve aspect ratio
     })
 
     // Force a reflow to ensure styles are applied before html2pdf captures the content
@@ -1461,18 +1492,27 @@ const PrintSection: FC<PrintSectionProps> = ({
                             : canvasHeight,
                         // Prevent image splitting by ensuring full capture
                         onclone: (clonedDoc: Document) => {
-                            // Ensure all image wrappers maintain their page break settings
+                            // CRITICAL: Find the correct wrapper class and ensure page breaks
                             const clonedImages = clonedDoc.querySelectorAll(
-                                '.image-no-break-wrapper',
+                                '.image-isolated-page',
                             )
                             clonedImages.forEach(wrapper => {
                                 const el = wrapper as HTMLElement
+                                // Force page break before to ensure image starts on new page
                                 el.style.pageBreakBefore = 'always'
                                 el.style.breakBefore = 'page'
-                                el.style.pageBreakAfter = 'always'
-                                el.style.breakAfter = 'page'
                                 el.style.pageBreakInside = 'avoid'
                                 el.style.breakInside = 'avoid'
+                                el.style.display = 'block'
+
+                                // Also ensure the image inside has the same settings
+                                const img = el.querySelector('img')
+                                if (img) {
+                                    const imgEl = img as HTMLElement
+                                    imgEl.style.pageBreakInside = 'avoid'
+                                    imgEl.style.breakInside = 'avoid'
+                                    imgEl.style.display = 'block'
+                                }
                             })
                         },
                     },
@@ -1482,8 +1522,9 @@ const PrintSection: FC<PrintSectionProps> = ({
                         orientation: 'portrait',
                         compress: false, // Disable PDF compression for better image quality
                         putOnlyUsedFonts: true, // Optimize font usage
-                        // CRITICAL: Completely disable autoPaging for images to prevent any splitting
-                        autoPaging: hasImages ? false : 'text',
+                        // CRITICAL: Keep autoPaging enabled - html2pdf.js needs it to handle page breaks correctly
+                        // When autoPaging is false, html2pdf.js can't properly detect and prevent splits
+                        autoPaging: 'text', // Let html2pdf.js handle pagination with avoid-all mode
                     },
                     pagebreak: {
                         // CRITICAL: 'avoid-all' automatically prevents elements from splitting across pages
