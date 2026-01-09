@@ -666,9 +666,12 @@ const renderTextContentToPDF = async (
     // Clone elements to avoid modifying originals
     elements.forEach(el => {
         const clone = el.cloneNode(true) as HTMLElement
-        // Hide any images in cloned text content
+        // Hide any images and photo-report-containers in cloned text content
         clone.querySelectorAll('img').forEach(img => {
             ;(img as HTMLElement).style.display = 'none'
+        })
+        clone.querySelectorAll('.photo-report-container').forEach(container => {
+            ;(container as HTMLElement).style.display = 'none'
         })
         textContainer.appendChild(clone)
     })
@@ -723,6 +726,7 @@ const renderTextContentToPDF = async (
 
 /**
  * Renders a single image container to PDF on its own page
+ * Only captures the image itself, not surrounding text/metadata
  */
 const renderImageContainerToPDF = async (
     pdf: jsPDF,
@@ -731,39 +735,64 @@ const renderImageContainerToPDF = async (
     contentHeight: number,
     margin: number,
 ): Promise<void> => {
-    // Ensure container is in DOM and visible
-    if (!imageContainer.parentNode) {
-        console.warn('Image container not in DOM, skipping')
+    // Find the actual image element within the container
+    const img = imageContainer.querySelector('img') as HTMLImageElement
+    if (!img) {
+        console.warn('No image found in container, skipping')
         return
     }
 
-    const originalDisplay = imageContainer.style.display
-    const originalVisibility = imageContainer.style.visibility
-    const originalMaxWidth = imageContainer.style.maxWidth
-    const originalMaxHeight = imageContainer.style.maxHeight
+    // Ensure image is loaded and has dimensions
+    if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+        console.warn('Image has no dimensions, skipping')
+        return
+    }
 
-    // Ensure container is visible and constrained
-    imageContainer.style.display = 'block'
-    imageContainer.style.visibility = 'visible'
-    // Constrain container to prevent overflow
-    imageContainer.style.maxWidth = `${contentWidth * 0.85}px`
-    imageContainer.style.maxHeight = `${contentHeight * 0.85}px`
-    imageContainer.style.overflow = 'hidden'
+    // Calculate target size (80% of page as requested)
+    const maxImageWidth = contentWidth * 0.8
+    const maxImageHeight = contentHeight * 0.8
 
-    // Constrain images within container
-    const images = imageContainer.querySelectorAll('img')
-    images.forEach(img => {
-        const imgEl = img as HTMLImageElement
-        imgEl.style.maxWidth = '100%'
-        imgEl.style.maxHeight = '100%'
-        imgEl.style.objectFit = 'contain'
-        imgEl.style.display = 'block'
-    })
+    // Calculate aspect ratio and scale to fit
+    const imageAspectRatio = img.naturalWidth / img.naturalHeight
+    let targetWidth = maxImageWidth
+    let targetHeight = maxImageWidth / imageAspectRatio
+
+    // If height exceeds max, scale by height instead
+    if (targetHeight > maxImageHeight) {
+        targetHeight = maxImageHeight
+        targetWidth = maxImageHeight * imageAspectRatio
+    }
+
+    // Create a temporary container with just the image, sized correctly
+    const tempContainer = document.createElement('div')
+    tempContainer.style.width = `${targetWidth}px`
+    tempContainer.style.height = `${targetHeight}px`
+    tempContainer.style.display = 'block'
+    tempContainer.style.visibility = 'visible'
+    tempContainer.style.position = 'absolute'
+    tempContainer.style.left = '-9999px'
+    tempContainer.style.top = '0'
+    tempContainer.style.backgroundColor = '#ffffff'
+    tempContainer.style.overflow = 'hidden'
+    document.body.appendChild(tempContainer)
+
+    // Clone and size the image
+    const imgClone = img.cloneNode(true) as HTMLImageElement
+    imgClone.style.width = '100%'
+    imgClone.style.height = '100%'
+    imgClone.style.objectFit = 'contain'
+    imgClone.style.display = 'block'
+    imgClone.style.margin = '0'
+    imgClone.style.padding = '0'
+    tempContainer.appendChild(imgClone)
 
     try {
+        // Wait a moment for image to render
+        await new Promise(resolve => setTimeout(resolve, 100))
+
         pdf.addPage()
 
-        const canvas = await html2canvas(imageContainer, {
+        const canvas = await html2canvas(tempContainer, {
             scale: 1.2,
             useCORS: true,
             allowTaint: true,
@@ -771,40 +800,37 @@ const renderImageContainerToPDF = async (
             logging: false,
             imageTimeout: 15000,
             removeContainer: false,
+            width: targetWidth,
+            height: targetHeight,
         })
 
         const imgData = canvas.toDataURL('image/jpeg', 0.98)
 
-        // Scale to fit page (85% as requested)
-        const maxImageWidth = contentWidth * 0.85
-        const maxImageHeight = contentHeight * 0.85
-        const ratio = Math.min(
-            maxImageWidth / canvas.width,
-            maxImageHeight / canvas.height,
-        )
+        // html2canvas with scale 1.2 creates a canvas that's 1.2x the element size
+        // jsPDF uses points (72 points per inch)
+        // At 96dpi: 1px = 0.75pt, but with scale 1.2: canvas pixels = 1.2 * element pixels
+        // So: element pixels = canvas pixels / 1.2
+        // PDF points = element pixels * (72/96) = (canvas pixels / 1.2) * (72/96)
+        const scaleFactor = 1.2
+        const elementWidthPx = canvas.width / scaleFactor
+        const elementHeightPx = canvas.height / scaleFactor
+        const pdfWidthPt = elementWidthPx * (72 / 96)
+        const pdfHeightPt = elementHeightPx * (72 / 96)
 
-        const scaledWidth = canvas.width * ratio
-        const scaledHeight = canvas.height * ratio
+        // Ensure it fits within 80% of page (double-check to prevent overflow)
+        const finalWidth = Math.min(pdfWidthPt, maxImageWidth)
+        const finalHeight = Math.min(pdfHeightPt, maxImageHeight)
 
         // Center on page
-        const x = margin + (contentWidth - scaledWidth) / 2
-        const y = margin + (contentHeight - scaledHeight) / 2
+        const x = margin + (contentWidth - finalWidth) / 2
+        const y = margin + (contentHeight - finalHeight) / 2
 
-        pdf.addImage(imgData, 'JPEG', x, y, scaledWidth, scaledHeight)
+        // Add image to PDF - this should fit exactly on one page
+        pdf.addImage(imgData, 'JPEG', x, y, finalWidth, finalHeight)
     } finally {
-        // Restore original styles
-        imageContainer.style.display = originalDisplay
-        imageContainer.style.visibility = originalVisibility
-        imageContainer.style.maxWidth = originalMaxWidth
-        imageContainer.style.maxHeight = originalMaxHeight
-        imageContainer.style.overflow = ''
-
-        // Restore image styles
-        images.forEach(img => {
-            const imgEl = img as HTMLElement
-            imgEl.style.maxWidth = ''
-            imgEl.style.maxHeight = ''
-        })
+        if (tempContainer.parentNode) {
+            document.body.removeChild(tempContainer)
+        }
     }
 }
 
