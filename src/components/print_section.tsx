@@ -762,6 +762,10 @@ const renderImageContainerToPDF = async (
     contentHeight: number,
     margin: number,
 ): Promise<void> => {
+    // Get PDF page dimensions for boundary checks
+    const pdfWidth = pdf.internal.pageSize.getWidth()
+    const pdfHeight = pdf.internal.pageSize.getHeight()
+
     // Find the actual image element within the container
     const img = imageContainer.querySelector('img') as HTMLImageElement
     if (!img) {
@@ -802,6 +806,10 @@ const renderImageContainerToPDF = async (
         targetWidthPt = maxImageHeightPt * imageAspectRatio
     }
 
+    // Ensure dimensions don't exceed maximums (safety check)
+    targetWidthPt = Math.min(targetWidthPt, maxImageWidthPt)
+    targetHeightPt = Math.min(targetHeightPt, maxImageHeightPt)
+
     // Create a new page for this image (BEFORE rendering)
     pdf.addPage()
 
@@ -816,8 +824,8 @@ const renderImageContainerToPDF = async (
 
     // Set canvas size to match target PDF size (in pixels)
     // Convert PDF points to pixels: 1pt = 96/72 px = 1.333px
-    const targetWidthPx = targetWidthPt * (96 / 72)
-    const targetHeightPx = targetHeightPt * (96 / 72)
+    const targetWidthPx = Math.floor(targetWidthPt * (96 / 72))
+    const targetHeightPx = Math.floor(targetHeightPt * (96 / 72))
     canvas.width = targetWidthPx
     canvas.height = targetHeightPx
 
@@ -825,18 +833,53 @@ const renderImageContainerToPDF = async (
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // Draw the image scaled to fit
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    // Calculate how to draw the image to fit exactly within canvas bounds
+    // Use the image's natural dimensions to maintain aspect ratio
+    const imgAspectRatio = img.naturalWidth / img.naturalHeight
+    const canvasAspectRatio = canvas.width / canvas.height
+
+    let drawWidth = canvas.width
+    let drawHeight = canvas.height
+    let drawX = 0
+    let drawY = 0
+
+    // If image is wider than canvas aspect ratio, fit to width
+    if (imgAspectRatio > canvasAspectRatio) {
+        drawWidth = canvas.width
+        drawHeight = canvas.width / imgAspectRatio
+        drawY = (canvas.height - drawHeight) / 2 // Center vertically
+    } else {
+        // Image is taller, fit to height
+        drawHeight = canvas.height
+        drawWidth = canvas.height * imgAspectRatio
+        drawX = (canvas.width - drawWidth) / 2 // Center horizontally
+    }
+
+    // Draw the image scaled to fit exactly within canvas bounds
+    ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
 
     // Convert to image data
     const imgData = canvas.toDataURL('image/jpeg', 0.98)
 
     // Add to PDF using exact target dimensions (in points)
-    const x = margin + (contentWidth - targetWidthPt) / 2
-    const y = margin + (contentHeight - targetHeightPt) / 2
+    // Ensure we don't exceed the page boundaries
+    const finalWidthPt = Math.min(targetWidthPt, maxImageWidthPt)
+    const finalHeightPt = Math.min(targetHeightPt, maxImageHeightPt)
+    const x = margin + (contentWidth - finalWidthPt) / 2
+    const y = margin + (contentHeight - finalHeightPt) / 2
 
-    // Add image to PDF - this should fit exactly on one page
-    pdf.addImage(imgData, 'JPEG', x, y, targetWidthPt, targetHeightPt)
+    // Ensure x and y are within page bounds
+    const finalX = Math.max(
+        margin,
+        Math.min(x, pdfWidth - margin - finalWidthPt),
+    )
+    const finalY = Math.max(
+        margin,
+        Math.min(y, pdfHeight - margin - finalHeightPt),
+    )
+
+    // Add image to PDF - this should fit exactly on one page without overflow
+    pdf.addImage(imgData, 'JPEG', finalX, finalY, finalWidthPt, finalHeightPt)
 }
 
 /**
