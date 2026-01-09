@@ -563,7 +563,8 @@ const generatePDFFromHTML = async (
 
 /**
  * Generates PDF with special handling for images to prevent splitting
- * Each image gets its own page, scaled to 85% of page size
+ * Each image container gets its own page, scaled to 85% of page size
+ * Processes content sequentially to maintain order
  */
 const generatePDFWithImageHandling = async (
     container: HTMLElement,
@@ -581,59 +582,128 @@ const generatePDFWithImageHandling = async (
     const contentWidth = pdfWidth - margin * 2
     const contentHeight = pdfHeight - margin * 2
 
-    // Separate images from other content
-    const images = container.querySelectorAll('img')
-    const imageContainers: HTMLElement[] = []
-    const nonImageElements: HTMLElement[] = []
+    // Find all photo-report-container elements (these contain images)
+    const photoContainers = Array.from(
+        container.querySelectorAll('.photo-report-container'),
+    ) as HTMLElement[]
 
-    // Process each direct child element
-    Array.from(container.children).forEach(child => {
-        const childEl = child as HTMLElement
-        const hasImage = childEl.querySelector('img') !== null
-        if (hasImage) {
-            imageContainers.push(childEl)
+    // Process content sequentially, maintaining order
+    const children = Array.from(container.children) as HTMLElement[]
+    let currentTextElements: HTMLElement[] = []
+
+    for (const child of children) {
+        // Check if this child contains a photo-report-container
+        const hasPhotoContainer =
+            child.querySelector('.photo-report-container') !== null
+
+        if (hasPhotoContainer) {
+            // First, render any accumulated text content
+            if (currentTextElements.length > 0) {
+                await renderTextContentToPDF(
+                    pdf,
+                    currentTextElements,
+                    contentWidth,
+                    contentHeight,
+                    margin,
+                )
+                currentTextElements = []
+            }
+
+            // Render each photo container on its own page
+            const photoContainersInChild = Array.from(
+                child.querySelectorAll('.photo-report-container'),
+            ) as HTMLElement[]
+
+            for (const photoContainer of photoContainersInChild) {
+                await renderImageContainerToPDF(
+                    pdf,
+                    photoContainer,
+                    contentWidth,
+                    contentHeight,
+                    margin,
+                )
+            }
         } else {
-            nonImageElements.push(childEl)
+            // Accumulate text content
+            currentTextElements.push(child)
         }
+    }
+
+    // Render any remaining text content
+    if (currentTextElements.length > 0) {
+        await renderTextContentToPDF(
+            pdf,
+            currentTextElements,
+            contentWidth,
+            contentHeight,
+            margin,
+        )
+    }
+
+    return pdf.output('blob')
+}
+
+/**
+ * Renders text content to PDF with pagination
+ */
+const renderTextContentToPDF = async (
+    pdf: jsPDF,
+    elements: HTMLElement[],
+    contentWidth: number,
+    contentHeight: number,
+    margin: number,
+): Promise<void> => {
+    // Create temporary container for text elements
+    const textContainer = document.createElement('div')
+    textContainer.style.width = `${contentWidth}px`
+    textContainer.style.display = 'block'
+    textContainer.style.visibility = 'visible'
+    textContainer.style.position = 'absolute'
+    textContainer.style.left = '-9999px'
+    textContainer.style.top = '0'
+    document.body.appendChild(textContainer)
+
+    // Clone elements to avoid modifying originals
+    elements.forEach(el => {
+        const clone = el.cloneNode(true) as HTMLElement
+        // Hide any images in cloned text content
+        clone.querySelectorAll('img').forEach(img => {
+            ;(img as HTMLElement).style.display = 'none'
+        })
+        textContainer.appendChild(clone)
     })
 
-    // Process non-image content first
-    if (nonImageElements.length > 0) {
-        // Instead of cloning, render the original container but hide images
-        // This ensures all resources are loaded and accessible
-        const imagesToHide: HTMLElement[] = []
-        container.querySelectorAll('img').forEach(img => {
-            const imgEl = img as HTMLElement
-            if (imgEl.offsetParent !== null) {
-                // Image is visible, hide it temporarily
-                imagesToHide.push(imgEl)
-                imgEl.style.display = 'none'
-            }
+    try {
+        const canvas = await html2canvas(textContainer, {
+            scale: 1.5,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            imageTimeout: 15000,
+            removeContainer: false,
         })
 
-        try {
-            const canvas = await html2canvas(container, {
-                scale: 1.5,
-                useCORS: true,
-                allowTaint: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-                imageTimeout: 15000,
-                removeContainer: false,
-                ignoreElements: element => {
-                    // Ignore image elements when rendering text content
-                    return element.tagName === 'IMG'
-                },
-            })
+        const imgData = canvas.toDataURL('image/jpeg', 0.98)
+        const ratio = contentWidth / canvas.width
+        const scaledHeight = canvas.height * ratio
 
-            const imgData = canvas.toDataURL('image/jpeg', 0.98)
-            const ratio = contentWidth / canvas.width
-            const scaledHeight = canvas.height * ratio
+        // Add to PDF with pagination
+        let heightLeft = scaledHeight
+        let position = margin
 
-            // Add to PDF with pagination
-            let heightLeft = scaledHeight
-            let position = margin
+        pdf.addImage(
+            imgData,
+            'JPEG',
+            margin,
+            position,
+            contentWidth,
+            scaledHeight,
+        )
 
+        while (heightLeft > contentHeight) {
+            position -= contentHeight
+            pdf.addPage()
             pdf.addImage(
                 imgData,
                 'JPEG',
@@ -642,80 +712,100 @@ const generatePDFWithImageHandling = async (
                 contentWidth,
                 scaledHeight,
             )
-
-            while (heightLeft > contentHeight) {
-                position -= contentHeight
-                pdf.addPage()
-                pdf.addImage(
-                    imgData,
-                    'JPEG',
-                    margin,
-                    position,
-                    contentWidth,
-                    scaledHeight,
-                )
-                heightLeft -= contentHeight
-            }
-        } finally {
-            // Restore images
-            imagesToHide.forEach(img => {
-                img.style.display = ''
-            })
+            heightLeft -= contentHeight
+        }
+    } finally {
+        if (textContainer.parentNode) {
+            document.body.removeChild(textContainer)
         }
     }
+}
 
-    // Process each image separately - one per page
-    for (const imageContainer of imageContainers) {
-        // Ensure image container is in DOM and visible
-        if (!imageContainer.parentNode) {
-            console.warn('Image container not in DOM, skipping')
-            continue
-        }
-
-        const originalDisplay = imageContainer.style.display
-        const originalVisibility = imageContainer.style.visibility
-        imageContainer.style.display = 'block'
-        imageContainer.style.visibility = 'visible'
-
-        try {
-            pdf.addPage()
-
-            const canvas = await html2canvas(imageContainer, {
-                scale: 1.2,
-                useCORS: true,
-                allowTaint: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-                imageTimeout: 15000,
-                removeContainer: false,
-            })
-
-            const imgData = canvas.toDataURL('image/jpeg', 0.98)
-
-            // Scale image to fit page (85% as requested)
-            const maxImageWidth = contentWidth * 0.85
-            const maxImageHeight = contentHeight * 0.85
-            const ratio = Math.min(
-                maxImageWidth / canvas.width,
-                maxImageHeight / canvas.height,
-            )
-
-            const scaledWidth = canvas.width * ratio
-            const scaledHeight = canvas.height * ratio
-
-            // Center image on page
-            const x = margin + (contentWidth - scaledWidth) / 2
-            const y = margin + (contentHeight - scaledHeight) / 2
-
-            pdf.addImage(imgData, 'JPEG', x, y, scaledWidth, scaledHeight)
-        } finally {
-            // Restore original styles
-            imageContainer.style.display = originalDisplay
-            imageContainer.style.visibility = originalVisibility
-        }
+/**
+ * Renders a single image container to PDF on its own page
+ */
+const renderImageContainerToPDF = async (
+    pdf: jsPDF,
+    imageContainer: HTMLElement,
+    contentWidth: number,
+    contentHeight: number,
+    margin: number,
+): Promise<void> => {
+    // Ensure container is in DOM and visible
+    if (!imageContainer.parentNode) {
+        console.warn('Image container not in DOM, skipping')
+        return
     }
 
-    return pdf.output('blob')
+    const originalDisplay = imageContainer.style.display
+    const originalVisibility = imageContainer.style.visibility
+    const originalMaxWidth = imageContainer.style.maxWidth
+    const originalMaxHeight = imageContainer.style.maxHeight
+
+    // Ensure container is visible and constrained
+    imageContainer.style.display = 'block'
+    imageContainer.style.visibility = 'visible'
+    // Constrain container to prevent overflow
+    imageContainer.style.maxWidth = `${contentWidth * 0.85}px`
+    imageContainer.style.maxHeight = `${contentHeight * 0.85}px`
+    imageContainer.style.overflow = 'hidden'
+
+    // Constrain images within container
+    const images = imageContainer.querySelectorAll('img')
+    images.forEach(img => {
+        const imgEl = img as HTMLImageElement
+        imgEl.style.maxWidth = '100%'
+        imgEl.style.maxHeight = '100%'
+        imgEl.style.objectFit = 'contain'
+        imgEl.style.display = 'block'
+    })
+
+    try {
+        pdf.addPage()
+
+        const canvas = await html2canvas(imageContainer, {
+            scale: 1.2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            imageTimeout: 15000,
+            removeContainer: false,
+        })
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.98)
+
+        // Scale to fit page (85% as requested)
+        const maxImageWidth = contentWidth * 0.85
+        const maxImageHeight = contentHeight * 0.85
+        const ratio = Math.min(
+            maxImageWidth / canvas.width,
+            maxImageHeight / canvas.height,
+        )
+
+        const scaledWidth = canvas.width * ratio
+        const scaledHeight = canvas.height * ratio
+
+        // Center on page
+        const x = margin + (contentWidth - scaledWidth) / 2
+        const y = margin + (contentHeight - scaledHeight) / 2
+
+        pdf.addImage(imgData, 'JPEG', x, y, scaledWidth, scaledHeight)
+    } finally {
+        // Restore original styles
+        imageContainer.style.display = originalDisplay
+        imageContainer.style.visibility = originalVisibility
+        imageContainer.style.maxWidth = originalMaxWidth
+        imageContainer.style.maxHeight = originalMaxHeight
+        imageContainer.style.overflow = ''
+
+        // Restore image styles
+        images.forEach(img => {
+            const imgEl = img as HTMLElement
+            imgEl.style.maxWidth = ''
+            imgEl.style.maxHeight = ''
+        })
+    }
 }
 
 /**
