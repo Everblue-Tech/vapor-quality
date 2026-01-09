@@ -120,10 +120,10 @@ This happens in the `MdxWrapper` component.
 
 Reusable components include properties (props) that pass relevant data to meet specific needs. The usage of these props can vary depending on the specific React components used. The commonly used props are as follows:
 
-- '`label'`: Used for providing labels or titles for components.
-- `'path'`: Used to specify a variable path for storing data. Examples include "location" and "installation.location."
-- `'id'`: Assigned as a unique identifier to specific components, particularly used as a reference for storing photo and file attachments in the database.
-- `'hint'`: Used to provide additional information or guidance to users about the input.
+-   '`label'`: Used for providing labels or titles for components.
+-   `'path'`: Used to specify a variable path for storing data. Examples include "location" and "installation.location."
+-   `'id'`: Assigned as a unique identifier to specific components, particularly used as a reference for storing photo and file attachments in the database.
+-   `'hint'`: Used to provide additional information or guidance to users about the input.
 
 ### Input Components:
 

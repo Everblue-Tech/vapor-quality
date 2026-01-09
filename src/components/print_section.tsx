@@ -1,8 +1,8 @@
 import { useId, useState, FC, ReactNode, useEffect } from 'react'
 import print from 'print-js'
 import Button from 'react-bootstrap/Button'
-// eslint-disable-next-line
-import html2pdf from 'html2pdf.js'
+import html2canvas from 'html2canvas'
+import { jsPDF } from 'jspdf'
 import { PDFDocument, PDFName } from 'pdf-lib'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 import { useDB } from '../utilities/database_utils'
@@ -463,99 +463,223 @@ const chunkContentForPDF = (container: HTMLElement): HTMLElement[] => {
 }
 
 /**
+ * Generates PDF from HTML element using html2canvas + jsPDF directly
+ */
+const generatePDFFromHTML = async (
+    element: HTMLElement,
+    options: {
+        margin?: number
+        scale?: number
+        quality?: number
+    } = {},
+): Promise<Blob> => {
+    const { margin = 15, scale = 1.5, quality = 0.98 } = options
+
+    // Step 1: Capture HTML as canvas
+    const canvas = await html2canvas(element, {
+        scale: scale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        imageTimeout: 15000,
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+    })
+
+    // Step 2: Create PDF
+    const pdf = new jsPDF({
+        unit: 'pt',
+        format: 'a4',
+        orientation: 'portrait',
+        compress: false,
+    })
+
+    // Step 3: Calculate dimensions
+    const pdfWidth = pdf.internal.pageSize.getWidth()
+    const pdfHeight = pdf.internal.pageSize.getHeight()
+    const marginPt = margin
+    const contentWidth = pdfWidth - marginPt * 2
+    const contentHeight = pdfHeight - marginPt * 2
+
+    // Step 4: Convert canvas to image
+    const imgData = canvas.toDataURL('image/jpeg', quality)
+    const imgWidth = canvas.width
+    const imgHeight = canvas.height
+
+    // Step 5: Calculate scaling to fit PDF width
+    const ratio = contentWidth / imgWidth
+    const scaledHeight = imgHeight * ratio
+
+    // Step 6: Split across pages if needed
+    let heightLeft = scaledHeight
+    let position = marginPt
+
+    // Add first page
+    pdf.addImage(
+        imgData,
+        'JPEG',
+        marginPt,
+        position,
+        contentWidth,
+        scaledHeight,
+    )
+
+    // Add additional pages if content is taller than one page
+    while (heightLeft > contentHeight) {
+        position -= contentHeight
+        pdf.addPage()
+        pdf.addImage(
+            imgData,
+            'JPEG',
+            marginPt,
+            position,
+            contentWidth,
+            scaledHeight,
+        )
+        heightLeft -= contentHeight
+    }
+
+    return pdf.output('blob')
+}
+
+/**
+ * Generates PDF with special handling for images to prevent splitting
+ * Each image gets its own page, scaled to 85% of page size
+ */
+const generatePDFWithImageHandling = async (
+    container: HTMLElement,
+): Promise<Blob> => {
+    const pdf = new jsPDF({
+        unit: 'pt',
+        format: 'a4',
+        orientation: 'portrait',
+        compress: false,
+    })
+
+    const pdfWidth = pdf.internal.pageSize.getWidth()
+    const pdfHeight = pdf.internal.pageSize.getHeight()
+    const margin = 15
+    const contentWidth = pdfWidth - margin * 2
+    const contentHeight = pdfHeight - margin * 2
+
+    // Separate images from other content
+    const images = container.querySelectorAll('img')
+    const imageContainers: HTMLElement[] = []
+    const nonImageElements: HTMLElement[] = []
+
+    // Process each direct child element
+    Array.from(container.children).forEach(child => {
+        const childEl = child as HTMLElement
+        const hasImage = childEl.querySelector('img') !== null
+        if (hasImage) {
+            imageContainers.push(childEl)
+        } else {
+            nonImageElements.push(childEl)
+        }
+    })
+
+    // Process non-image content first
+    if (nonImageElements.length > 0) {
+        const textContainer = document.createElement('div')
+        textContainer.style.width = `${container.scrollWidth}px`
+        nonImageElements.forEach(el => {
+            textContainer.appendChild(el.cloneNode(true) as HTMLElement)
+        })
+
+        const canvas = await html2canvas(textContainer, {
+            scale: 1.5,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            imageTimeout: 15000,
+        })
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.98)
+        const ratio = contentWidth / canvas.width
+        const scaledHeight = canvas.height * ratio
+
+        // Add to PDF with pagination
+        let heightLeft = scaledHeight
+        let position = margin
+
+        pdf.addImage(
+            imgData,
+            'JPEG',
+            margin,
+            position,
+            contentWidth,
+            scaledHeight,
+        )
+
+        while (heightLeft > contentHeight) {
+            position -= contentHeight
+            pdf.addPage()
+            pdf.addImage(
+                imgData,
+                'JPEG',
+                margin,
+                position,
+                contentWidth,
+                scaledHeight,
+            )
+            heightLeft -= contentHeight
+        }
+    }
+
+    // Process each image separately - one per page
+    for (const imageContainer of imageContainers) {
+        pdf.addPage()
+
+        const canvas = await html2canvas(imageContainer, {
+            scale: 1.2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            imageTimeout: 15000,
+        })
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.98)
+
+        // Scale image to fit page (85% as requested)
+        const maxImageWidth = contentWidth * 0.85
+        const maxImageHeight = contentHeight * 0.85
+        const ratio = Math.min(
+            maxImageWidth / canvas.width,
+            maxImageHeight / canvas.height,
+        )
+
+        const scaledWidth = canvas.width * ratio
+        const scaledHeight = canvas.height * ratio
+
+        // Center image on page
+        const x = margin + (contentWidth - scaledWidth) / 2
+        const y = margin + (contentHeight - scaledHeight) / 2
+
+        pdf.addImage(imgData, 'JPEG', x, y, scaledWidth, scaledHeight)
+    }
+
+    return pdf.output('blob')
+}
+
+/**
  * Generates PDF from a single chunk
  */
 const generateChunkPDF = async (
     chunk: HTMLElement,
     chunkIndex: number,
 ): Promise<Blob> => {
-    // Check if this chunk contains images - if so, allow larger canvas
+    // Check if this chunk contains images
     const hasImages = chunk.getAttribute('data-has-images') === 'true'
 
-    // For chunks with images, calculate the actual height needed
-    // CRITICAL: Use very large canvas height to prevent any splitting
-    let canvasHeight = 1200 // Default
-    if (hasImages) {
-        const chunkHeight = Math.max(
-            chunk.offsetHeight || 0,
-            chunk.scrollHeight || 0,
-            chunk.clientHeight || 0,
-        )
-        // For image chunks, use very large height to ensure no splitting
-        // html2pdf will handle pagination, but we want the full image on one canvas
-        canvasHeight = Math.max(chunkHeight * 2, 3000) // Much larger to prevent splitting
-    }
-
-    const opt = {
-        margin: [15, 15, 15, 15],
-        filename: `chunk-${chunkIndex}.pdf`,
-        image: {
-            type: 'jpeg',
-            quality: 0.98,
-        },
-        html2canvas: {
-            scale: hasImages ? 1.2 : 1.5, // Slightly lower scale for images to fit more content
-            useCORS: true,
-            logging: false,
-            allowTaint: true,
-            imageTimeout: 15000,
-            letterRendering: true,
-            removeContainer: true,
-            backgroundColor: '#ffffff',
-            foreignObjectRendering: false,
-            width: 800, // Limit canvas width
-            // CRITICAL: Use very large height for images to prevent splitting
-            height: hasImages ? Math.max(canvasHeight, 5000) : canvasHeight,
-            windowWidth: 800,
-            windowHeight: hasImages
-                ? Math.max(canvasHeight, 5000)
-                : canvasHeight,
-            // Prevent image splitting by ensuring full capture
-            onclone: (clonedDoc: Document) => {
-                // Ensure page-break-inside: avoid is maintained in cloned document
-                const clonedImages = clonedDoc.querySelectorAll(
-                    '.image-isolated-page',
-                )
-                clonedImages.forEach(wrapper => {
-                    const el = wrapper as HTMLElement
-                    el.style.pageBreakInside = 'avoid'
-                    el.style.breakInside = 'avoid'
-                    el.style.pageBreakBefore = 'always'
-                    el.style.breakBefore = 'page'
-
-                    // Also set on the image itself
-                    const img = el.querySelector('img')
-                    if (img) {
-                        const imgEl = img as HTMLElement
-                        imgEl.style.pageBreakInside = 'avoid'
-                        imgEl.style.breakInside = 'avoid'
-                    }
-                })
-            },
-        },
-        jsPDF: {
-            unit: 'pt',
-            format: 'a4',
-            orientation: 'portrait',
-            compress: false,
-            putOnlyUsedFonts: true,
-            // CRITICAL: Keep autoPaging enabled - html2pdf.js needs it to handle page breaks correctly
-            autoPaging: 'text', // Let html2pdf.js handle pagination with avoid-all mode
-        },
-        pagebreak: {
-            // CRITICAL: Use 'avoid-all' for automatic detection and 'css' for CSS properties
-            mode: ['avoid-all', 'css', 'legacy'],
-            before: '.page-break-before',
-            after: '.page-break-after',
-            avoid: [
-                'img',
-                '.photo-report-container',
-                '.photo-report-container img',
-            ],
-        },
-    }
-
-    return await html2pdf().set(opt).from(chunk).output('blob')
+    // Use new direct html2canvas + jsPDF approach
+    return await generatePDFFromHTML(chunk, {
+        margin: 15,
+        scale: hasImages ? 1.2 : 1.5,
+        quality: 0.98,
+    })
 }
 
 /**
@@ -1392,10 +1516,13 @@ const PrintSection: FC<PrintSectionProps> = ({
                                     },
                                 }
 
-                                const smallChunkPdfBlob = await html2pdf()
-                                    .set(smallerOpt)
-                                    .from(chunks[i])
-                                    .output('blob')
+                                // Use new direct approach for fallback
+                                const smallChunkPdfBlob =
+                                    await generatePDFFromHTML(chunks[i], {
+                                        margin: 15,
+                                        scale: 1.0,
+                                        quality: 0.8,
+                                    })
 
                                 pdfBlobs.push(smallChunkPdfBlob)
                                 console.log(
@@ -1435,122 +1562,10 @@ const PrintSection: FC<PrintSectionProps> = ({
                     `Content height (${contentHeight}px) is within limits, using single PDF generation`,
                 )
 
-                // Check if content has images
-                const hasImages = isImageContainer(wrapper as HTMLElement)
-
-                // Calculate canvas height - use very large height for images to prevent splitting
-                let canvasHeight = 1200
-                if (hasImages) {
-                    // Use much larger canvas height to ensure images don't get split
-                    canvasHeight = Math.max(contentHeight * 2, 3000)
-                }
-
-                // Use the original single PDF generation for smaller content
-                const opt = {
-                    margin: [15, 15, 15, 15], // Balanced margins
-                    filename: 'report.pdf',
-                    image: {
-                        type: 'jpeg',
-                        quality: 0.98, // High quality but stable
-                    },
-                    html2canvas: {
-                        scale: hasImages ? 1.2 : 1.5, // Lower scale for images
-                        useCORS: true,
-                        logging: false, // Disable logging for cleaner output
-                        allowTaint: true, // Allow cross-origin images
-                        imageTimeout: 15000, // Balanced timeout
-                        letterRendering: true, // Better text rendering
-                        removeContainer: true, // Remove container after processing
-                        backgroundColor: '#ffffff', // Ensure white background
-                        foreignObjectRendering: false, // Keep disabled for stability
-                        width: 800, // Limit canvas width
-                        // CRITICAL: Use very large height for images to prevent splitting
-                        height: hasImages
-                            ? Math.max(canvasHeight, 5000)
-                            : canvasHeight,
-                        windowWidth: 800,
-                        windowHeight: hasImages
-                            ? Math.max(canvasHeight, 5000)
-                            : canvasHeight,
-                        // Prevent image splitting by ensuring full capture
-                        onclone: (clonedDoc: Document) => {
-                            // CRITICAL: Ensure all images are visible and have page break styles
-                            const clonedImages =
-                                clonedDoc.querySelectorAll('img')
-                            clonedImages.forEach(img => {
-                                const imgEl = img as HTMLElement
-                                imgEl.style.pageBreakInside = 'avoid'
-                                imgEl.style.breakInside = 'avoid'
-                                imgEl.style.pageBreakBefore = 'always'
-                                imgEl.style.breakBefore = 'page'
-                                imgEl.style.display = 'block'
-                                imgEl.style.visibility = 'visible'
-                                imgEl.style.opacity = '1'
-                                imgEl.style.maxHeight = '650pt'
-
-                                // Ensure image dimensions are preserved
-                                if (
-                                    !imgEl.style.width &&
-                                    imgEl.getAttribute('width')
-                                ) {
-                                    imgEl.style.width =
-                                        imgEl.getAttribute('width') + 'px'
-                                }
-                                if (
-                                    !imgEl.style.height &&
-                                    imgEl.getAttribute('height')
-                                ) {
-                                    imgEl.style.height =
-                                        imgEl.getAttribute('height') + 'px'
-                                }
-
-                                // Ensure parent containers are visible
-                                let parent = imgEl.parentElement
-                                while (parent && parent !== clonedDoc.body) {
-                                    if (
-                                        parent.classList.contains(
-                                            'photo-report-container',
-                                        )
-                                    ) {
-                                        parent.style.visibility = 'visible'
-                                        parent.style.opacity = '1'
-                                        parent.style.overflow = 'visible'
-                                    }
-                                    parent = parent.parentElement
-                                }
-                            })
-                        },
-                    },
-                    jsPDF: {
-                        unit: 'pt',
-                        format: 'a4',
-                        orientation: 'portrait',
-                        compress: false, // Disable PDF compression for better image quality
-                        putOnlyUsedFonts: true, // Optimize font usage
-                        // CRITICAL: Keep autoPaging enabled - html2pdf.js needs it to handle page breaks correctly
-                        // When autoPaging is false, html2pdf.js can't properly detect and prevent splits
-                        autoPaging: 'text', // Let html2pdf.js handle pagination with avoid-all mode
-                    },
-                    pagebreak: {
-                        // CRITICAL: Use 'avoid-all' for automatic detection and 'css' for CSS properties
-                        mode: ['avoid-all', 'css', 'legacy'],
-                        before: '.page-break-before',
-                        after: '.page-break-after',
-                        avoid: [
-                            'img',
-                            '.photo-report-container',
-                            '.photo-report-container img',
-                            '.photo-report-container small', // Keep metadata with image
-                        ],
-                    },
-                }
-
-                const pdfBlob = await html2pdf()
-                    .set(opt)
-                    .from(wrapper)
-                    .output('blob')
-
-                finalPdfBlob = pdfBlob
+                // Use new direct html2canvas + jsPDF approach with image handling
+                finalPdfBlob = await generatePDFWithImageHandling(
+                    wrapper as HTMLElement,
+                )
             }
 
             // Remove blank pages from the end of the PDF
