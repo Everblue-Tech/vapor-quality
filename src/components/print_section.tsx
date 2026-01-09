@@ -470,6 +470,7 @@ const generateChunkPDF = async (
     const hasImages = chunk.getAttribute('data-has-images') === 'true'
 
     // For chunks with images, calculate the actual height needed
+    // CRITICAL: Use very large canvas height to prevent any splitting
     let canvasHeight = 1200 // Default
     if (hasImages) {
         const chunkHeight = Math.max(
@@ -477,8 +478,9 @@ const generateChunkPDF = async (
             chunk.scrollHeight || 0,
             chunk.clientHeight || 0,
         )
-        // For image chunks, use the actual height + padding, no cap to prevent splitting
-        canvasHeight = Math.max(chunkHeight * 1.2, 1200)
+        // For image chunks, use very large height to ensure no splitting
+        // html2pdf will handle pagination, but we want the full image on one canvas
+        canvasHeight = Math.max(chunkHeight * 2, 3000) // Much larger to prevent splitting
     }
 
     const opt = {
@@ -805,12 +807,18 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
                 img.style.maxHeight = `${targetHeightPx}px`
 
                 // CRITICAL: Force page breaks so image gets its own page with nothing else
+                // Use multiple methods to ensure html2pdf respects this
                 img.style.pageBreakBefore = 'always'
                 img.style.breakBefore = 'page'
                 img.style.pageBreakAfter = 'always'
                 img.style.breakAfter = 'page'
                 img.style.pageBreakInside = 'avoid'
                 img.style.breakInside = 'avoid'
+                // Add data attribute for html2pdf to recognize
+                img.setAttribute('data-page-break', 'always')
+                // Ensure image is treated as a block element that can't be split
+                img.style.display = 'block'
+                img.style.position = 'relative'
 
                 // CRITICAL: Ensure no distortion - always preserve aspect ratio
                 img.style.minWidth = '0'
@@ -867,16 +875,10 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
     await Promise.all(imagePromises)
 
     // Wrap ALL images in no-break wrappers to prevent page breaks
+    // CRITICAL: Give ALL images their own page to prevent any splitting or squashing
     const allImages = container.querySelectorAll('img')
     allImages.forEach(img => {
         const imgElement = img as HTMLImageElement
-        // Check if this is a large image that should get its own page
-        const isLargeImage =
-            imgElement.naturalWidth > 0 &&
-            imgElement.naturalHeight > 0 &&
-            (imgElement.naturalWidth / imgElement.naturalHeight < 1 || // Portrait
-                imgElement.naturalWidth > 600 || // Large width
-                imgElement.naturalHeight > 800) // Large height
 
         // Create a wrapper div if it doesn't exist
         if (!img.parentElement?.classList.contains('image-no-break-wrapper')) {
@@ -887,22 +889,14 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
             wrapper.style.maxWidth = '100%'
             wrapper.style.overflow = 'visible'
 
-            if (isLargeImage) {
-                // Large images: force page breaks to get their own full page
-                wrapper.style.pageBreakBefore = 'always'
-                wrapper.style.breakBefore = 'page'
-                wrapper.style.pageBreakAfter = 'always'
-                wrapper.style.breakAfter = 'page'
-                wrapper.style.pageBreakInside = 'avoid'
-                wrapper.style.breakInside = 'avoid'
-                wrapper.classList.add('full-page-image')
-            } else {
-                // Smaller images: prevent breaking but allow normal flow
-                wrapper.style.pageBreakInside = 'avoid'
-                wrapper.style.breakInside = 'avoid'
-                wrapper.style.pageBreakBefore = 'auto'
-                wrapper.style.breakBefore = 'auto'
-            }
+            // CRITICAL: Force ALL images to get their own page to prevent splitting
+            wrapper.style.pageBreakBefore = 'always'
+            wrapper.style.breakBefore = 'page'
+            wrapper.style.pageBreakAfter = 'always'
+            wrapper.style.breakAfter = 'page'
+            wrapper.style.pageBreakInside = 'avoid'
+            wrapper.style.breakInside = 'avoid'
+            wrapper.classList.add('full-page-image')
 
             // Ensure wrapper height matches image height
             if (imgElement.offsetHeight > 0) {
@@ -912,13 +906,15 @@ const preprocessImagesForPDF = async (container: HTMLElement) => {
             img.parentNode?.insertBefore(wrapper, img)
             wrapper.appendChild(img)
         } else {
-            // If wrapper exists, update styling based on image size
+            // If wrapper exists, ensure it has aggressive page break prevention
             const wrapper = img.parentElement
-            if (wrapper && isLargeImage) {
+            if (wrapper) {
                 wrapper.style.pageBreakBefore = 'always'
                 wrapper.style.breakBefore = 'page'
                 wrapper.style.pageBreakAfter = 'always'
                 wrapper.style.breakAfter = 'page'
+                wrapper.style.pageBreakInside = 'avoid'
+                wrapper.style.breakInside = 'avoid'
                 wrapper.classList.add('full-page-image')
             }
         }
@@ -1402,10 +1398,11 @@ const PrintSection: FC<PrintSectionProps> = ({
                 // Check if content has images
                 const hasImages = isImageContainer(wrapper as HTMLElement)
 
-                // Calculate canvas height - allow more for images
+                // Calculate canvas height - use very large height for images to prevent splitting
                 let canvasHeight = 1200
                 if (hasImages) {
-                    canvasHeight = Math.max(contentHeight * 1.2, 1200)
+                    // Use much larger canvas height to ensure images don't get split
+                    canvasHeight = Math.max(contentHeight * 2, 3000)
                 }
 
                 // Use the original single PDF generation for smaller content
@@ -1437,7 +1434,8 @@ const PrintSection: FC<PrintSectionProps> = ({
                         orientation: 'portrait',
                         compress: false, // Disable PDF compression for better image quality
                         putOnlyUsedFonts: true, // Optimize font usage
-                        autoPaging: hasImages ? false : 'text', // Disable autoPaging for images to prevent splitting
+                        // CRITICAL: Completely disable autoPaging for images to prevent any splitting
+                        autoPaging: hasImages ? false : 'text',
                     },
                     pagebreak: {
                         mode: ['css', 'legacy'], // Use both modes for better compatibility
