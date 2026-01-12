@@ -579,8 +579,10 @@ const generatePDFWithImageHandling = async (
     const pdfWidth = pdf.internal.pageSize.getWidth()
     const pdfHeight = pdf.internal.pageSize.getHeight()
     const margin = 15
+    // Add extra padding between sections to prevent overlap
+    const sectionPadding = 20
     const contentWidth = pdfWidth - margin * 2
-    const contentHeight = pdfHeight - margin * 2
+    const contentHeight = pdfHeight - margin * 2 - sectionPadding
 
     // Find all photo-report-container elements (these contain images)
     const photoContainers = Array.from(
@@ -598,6 +600,7 @@ const generatePDFWithImageHandling = async (
 
         if (hasPhotoContainer) {
             // First, render any accumulated text content BEFORE processing images
+            // Add extra padding after text to ensure separation
             if (currentTextElements.length > 0) {
                 await renderTextContentToPDF(
                     pdf,
@@ -607,6 +610,8 @@ const generatePDFWithImageHandling = async (
                     margin,
                 )
                 currentTextElements = []
+                // Add a blank page after text to ensure clear separation before images
+                pdf.addPage()
             }
 
             // Extract text content from this child (like Card.Title, Card.Text)
@@ -632,6 +637,8 @@ const generatePDFWithImageHandling = async (
                     contentHeight,
                     margin,
                 )
+                // Add a blank page after text to ensure clear separation before images
+                pdf.addPage()
             }
 
             // NOW render each photo container on its own SEPARATE page
@@ -649,6 +656,8 @@ const generatePDFWithImageHandling = async (
                     contentHeight,
                     margin,
                 )
+                // Add a blank page after each image to ensure clear separation
+                pdf.addPage()
             }
         } else {
             // Accumulate text content
@@ -791,11 +800,11 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Calculate target size (60% of page height to prevent overflow) in PDF points
-    // Using 60% to add significant safety margin and prevent any overflow
-    const maxImageHeightPt = contentHeight * 0.6
-    // Width should also be constrained to 60% to maintain proportions
-    const maxImageWidthPt = contentWidth * 0.6
+    // Calculate target size (55% of page height to prevent overflow) in PDF points
+    // Using 55% to add significant safety margin, prevent overflow, and leave room for padding
+    const maxImageHeightPt = contentHeight * 0.55
+    // Width should also be constrained to 55% to maintain proportions
+    const maxImageWidthPt = contentWidth * 0.55
 
     // Use natural image dimensions to calculate scaling
     const imageAspectRatio = img.naturalWidth / img.naturalHeight
