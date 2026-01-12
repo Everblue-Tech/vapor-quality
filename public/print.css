@@ -221,8 +221,28 @@ h6 {
 /* photo.tsx */
 .photo-card {
     break-inside: avoid;
-    margin-bottom: 1rem;
+    margin-bottom: 2rem;
     margin-top: 1rem;
+    overflow: hidden;
+}
+
+/* Ensure card body contains images properly */
+.photo-card .card-body {
+    overflow: hidden;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Ensure images within photo-report-container don't overflow */
+.photo-report-container img,
+.photo-report-container .img-thumbnail {
+    max-width: 100% !important;
+    max-height: 100% !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 0 auto !important;
 }
 
 .photo-row {
@@ -434,15 +454,16 @@ btn-light:hover {
 .photo-report-container {
     display: block;
     position: relative;
-    width: auto;
-    max-width: 250px;
+    width: 100%;
+    max-width: 100%;
     height: auto;
     max-height: none;
     break-inside: avoid;
     page-break-inside: avoid;
-    overflow: visible;
+    overflow: hidden;
     margin-bottom: 20px;
     padding-bottom: 10px;
+    box-sizing: border-box;
 }
 
 /* Ensure the metadata div inside photo containers is fully visible */
@@ -596,6 +617,19 @@ select {
     border-radius: 8px; /* Optional: adds rounded corners to the image */
     display: block !important; /* Remove inline spacing */
     max-width: 100% !important; /* Ensure it doesn't exceed container */
+}
+
+/* Ensure photo-report-container images are constrained within card body */
+.photo-report-container .img-thumbnail,
+.photo-report-container img {
+    max-width: 100% !important;
+    max-height: 400px !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
 }
 
 /* used in photo-input component */
