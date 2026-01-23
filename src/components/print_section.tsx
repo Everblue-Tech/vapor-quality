@@ -3,7 +3,7 @@ import print from 'print-js'
 import Button from 'react-bootstrap/Button'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
-import { PDFDocument, PDFName } from 'pdf-lib'
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 import { useDB } from '../utilities/database_utils'
 import {
@@ -64,7 +64,7 @@ const extractGeotagLinks = (container: HTMLElement): GeotagLinkInfo[] => {
 
 /**
  * Adds clickable link annotations to geotags in the PDF
- * Since html2pdf renders to images, we approximate positions based on DOM coordinates
+ * Updated for html2canvas + jsPDF approach with proper coordinate mapping
  */
 const addGeotagLinksToPDF = async (
     pdfBlob: Blob,
@@ -78,101 +78,194 @@ const addGeotagLinksToPDF = async (
         const pages = pdfDoc.getPages()
 
         if (pages.length === 0 || geotagLinks.length === 0) {
+            console.log('No pages or geotag links to process')
             return pdfBlob
         }
 
-        // A4 dimensions in points (pdf-lib uses points)
+        // A4 dimensions in points (pdf-lib and jsPDF both use points)
         const a4Width = 595.28 // A4 width in points
         const a4Height = 841.89 // A4 height in points
-        const margin = 15 // Margin in points (matching html2pdf margin)
+        const margin = 15 // Margin in points (matching jsPDF margin)
+        const contentWidth = a4Width - margin * 2
+        const contentHeight = a4Height - margin * 2
 
-        // Calculate scale factors
-        // html2pdf uses 800px width, so scale factor accounts for that
-        const scaleX = (a4Width - margin * 2) / containerWidth
-        const scaleY = (a4Height - margin * 2) / containerHeight
+        // Calculate scale factors from DOM pixels to PDF points
+        // html2canvas uses pixels, jsPDF uses points
+        // At 96dpi: 1px = 0.75pt, but html2canvas scale affects this
+        // We need to account for the actual rendered size
+        const scaleX = contentWidth / containerWidth
+        const scaleY = contentHeight / containerHeight
+
+        console.log(
+            `Adding ${geotagLinks.length} geotag links to PDF with scale factors: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)}`,
+        )
 
         // Process each geotag link
+        let linksAdded = 0
+        let linksSkipped = 0
+
         for (const geotagLink of geotagLinks) {
-            const { url, boundingRect } = geotagLink
+            const { url, boundingRect, text } = geotagLink
 
-            // Calculate which page this link is on
-            // Assuming content flows vertically and each page is approximately containerHeight / numPages
-            const estimatedPageHeight = containerHeight / pages.length
-            const pageIndex = Math.min(
-                Math.floor(boundingRect.top / estimatedPageHeight),
-                pages.length - 1,
-            )
-
-            const page = pages[pageIndex]
-            const pageSize = page.getSize()
-
-            // Convert DOM coordinates to PDF coordinates
-            // PDF coordinates start from bottom-left, DOM from top-left
-            const relativeTop = boundingRect.top % estimatedPageHeight
-            const pdfX = margin + boundingRect.left * scaleX
-            const pdfY =
-                pageSize.height -
-                margin -
-                relativeTop * scaleY -
-                boundingRect.height * scaleY
-
-            // Ensure coordinates are within page bounds
+            // Ensure URL is properly formatted
+            let finalUrl = url.trim()
             if (
-                pdfX >= 0 &&
-                pdfX <= pageSize.width &&
-                pdfY >= 0 &&
-                pdfY <= pageSize.height &&
-                pdfX + boundingRect.width * scaleX <= pageSize.width
+                !finalUrl.startsWith('http://') &&
+                !finalUrl.startsWith('https://')
             ) {
-                // Create link annotation using pdf-lib's annotation API
-                const linkAnnotation = pdfDoc.context.register(
-                    pdfDoc.context.obj({
-                        Type: PDFName.of('Annot'),
-                        Subtype: PDFName.of('Link'),
-                        Rect: [
-                            pdfX,
-                            pdfY,
-                            pdfX + boundingRect.width * scaleX,
-                            pdfY + boundingRect.height * scaleY,
-                        ],
-                        Border: [0, 0, 0],
-                        A: pdfDoc.context.obj({
-                            Type: PDFName.of('Action'),
-                            S: PDFName.of('URI'),
-                            URI: url,
-                        }),
-                    }),
+                finalUrl = `https://${finalUrl}`
+            }
+
+            // Try to find the correct page by checking all pages
+            // Since pages can have variable heights (images get their own pages),
+            // we'll try each page and see if the coordinates fit
+            let linkAdded = false
+
+            for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+                const page = pages[pageIndex]
+                const pageSize = page.getSize()
+
+                // Calculate which page this link should be on based on content height
+                // Each page can hold approximately contentHeight of content
+                const estimatedPageHeight = contentHeight
+                const relativeTop = boundingRect.top % estimatedPageHeight
+
+                // Only check this page if the link's top position suggests it's on this page
+                const linkTopPage = Math.floor(
+                    boundingRect.top / estimatedPageHeight,
                 )
+                if (
+                    linkTopPage !== pageIndex &&
+                    linkTopPage < pages.length - 1
+                ) {
+                    continue
+                }
 
-                // Get or create the Annots array for this page
-                const pageDict = page.node
-                const existingAnnots = pageDict.get(PDFName.of('Annots'))
+                // Calculate position within the page
+                // PDF coordinates: (0,0) is bottom-left, DOM: (0,0) is top-left
+                const pdfX = margin + boundingRect.left * scaleX
+                // Convert from top-left (DOM) to bottom-left (PDF) coordinate system
+                const pdfY =
+                    pageSize.height -
+                    margin -
+                    relativeTop * scaleY -
+                    boundingRect.height * scaleY
 
-                // Build array of annotations (existing + new)
-                const annotsToAdd: any[] = []
-                if (existingAnnots) {
-                    // If existingAnnots is already an array, spread it
-                    // Otherwise, add it as a single item
+                // Calculate link bounds
+                const linkWidth = Math.max(1, boundingRect.width * scaleX) // Ensure minimum width
+                const linkHeight = Math.max(1, boundingRect.height * scaleY) // Ensure minimum height
+
+                // Check if coordinates are within page bounds (with some tolerance)
+                const tolerance = 5 // Allow 5pt tolerance
+                if (
+                    pdfX >= margin - tolerance &&
+                    pdfX + linkWidth <= pageSize.width - margin + tolerance &&
+                    pdfY >= margin - tolerance &&
+                    pdfY + linkHeight <= pageSize.height - margin + tolerance
+                ) {
                     try {
-                        const existingArray = existingAnnots as any
-                        if (Array.isArray(existingArray)) {
-                            annotsToAdd.push(...existingArray)
-                        } else {
-                            annotsToAdd.push(existingAnnots)
+                        // Clamp coordinates to page bounds
+                        const clampedX = Math.max(
+                            margin,
+                            Math.min(pdfX, pageSize.width - margin - linkWidth),
+                        )
+                        const clampedY = Math.max(
+                            margin,
+                            Math.min(
+                                pdfY,
+                                pageSize.height - margin - linkHeight,
+                            ),
+                        )
+
+                        // Create link annotation using pdf-lib's annotation API
+                        const linkAnnotation = pdfDoc.context.register(
+                            pdfDoc.context.obj({
+                                Type: PDFName.of('Annot'),
+                                Subtype: PDFName.of('Link'),
+                                Rect: [
+                                    clampedX,
+                                    clampedY,
+                                    clampedX + linkWidth,
+                                    clampedY + linkHeight,
+                                ],
+                                Border: [0, 0, 0], // No visible border
+                                A: pdfDoc.context.obj({
+                                    Type: PDFName.of('Action'),
+                                    S: PDFName.of('URI'),
+                                    URI: PDFString.of(finalUrl), // Properly encode URI as PDFString
+                                }),
+                            }),
+                        )
+
+                        // Get or create the Annots array for this page
+                        const pageDict = page.node
+                        const existingAnnots = pageDict.get(
+                            PDFName.of('Annots'),
+                        )
+
+                        // Build array of annotations (existing + new)
+                        const annotsToAdd: any[] = []
+                        if (existingAnnots) {
+                            try {
+                                // Try to get the actual array from the PDF reference
+                                const existingAnnotsRef = existingAnnots as any
+                                if (
+                                    existingAnnotsRef &&
+                                    existingAnnotsRef.array
+                                ) {
+                                    const existingArray =
+                                        existingAnnotsRef.array()
+                                    if (Array.isArray(existingArray)) {
+                                        annotsToAdd.push(...existingArray)
+                                    } else {
+                                        annotsToAdd.push(existingAnnotsRef)
+                                    }
+                                } else {
+                                    annotsToAdd.push(existingAnnotsRef)
+                                }
+                            } catch (e) {
+                                // If we can't parse existing annotations, just add the new one
+                                console.warn(
+                                    `Could not parse existing annotations on page ${pageIndex + 1}, adding new link:`,
+                                    e,
+                                )
+                            }
                         }
-                    } catch {
-                        annotsToAdd.push(existingAnnots)
+                        annotsToAdd.push(linkAnnotation)
+
+                        // Create and set the annotations array
+                        const annotsArray = pdfDoc.context.register(
+                            pdfDoc.context.obj(annotsToAdd),
+                        )
+                        pageDict.set(PDFName.of('Annots'), annotsArray)
+
+                        console.log(
+                            `✓ Added geotag link "${text}" to page ${pageIndex + 1} at (${clampedX.toFixed(1)}, ${clampedY.toFixed(1)}) with URL: ${finalUrl}`,
+                        )
+                        linksAdded++
+                        linkAdded = true
+                        break // Found the right page, move to next link
+                    } catch (linkError) {
+                        console.error(
+                            `Error adding geotag link "${text}" to page ${pageIndex + 1}:`,
+                            linkError,
+                        )
+                        // Continue trying other pages
                     }
                 }
-                annotsToAdd.push(linkAnnotation)
+            }
 
-                // Create and set the annotations array
-                const annotsArray = pdfDoc.context.register(
-                    pdfDoc.context.obj(annotsToAdd),
+            if (!linkAdded) {
+                console.warn(
+                    `✗ Could not place geotag link "${text}" on any page. Position: top=${boundingRect.top.toFixed(1)}, left=${boundingRect.left.toFixed(1)}, URL: ${finalUrl}`,
                 )
-                pageDict.set(PDFName.of('Annots'), annotsArray)
+                linksSkipped++
             }
         }
+
+        console.log(
+            `Geotag links summary: ${linksAdded} added, ${linksSkipped} skipped out of ${geotagLinks.length} total`,
+        )
 
         // Save the modified PDF
         const modifiedPdfBytes = await pdfDoc.save()
@@ -183,7 +276,7 @@ const addGeotagLinksToPDF = async (
             type: 'application/pdf',
         })
     } catch (error) {
-        console.warn('Could not add geotag links to PDF:', error)
+        console.error('Could not add geotag links to PDF:', error)
         return pdfBlob
     }
 }
@@ -848,13 +941,22 @@ const renderImageContainerToPDF = async (
     const safeTargetWidthPt = Math.min(targetWidthPt, availableWidth)
     const safeTargetHeightPt = Math.min(targetHeightPt, availableHeight)
 
-    // Set canvas size to match safe target PDF size (in pixels)
-    // Convert PDF points to pixels: 1pt = 96/72 px = 1.333px
-    // Use the SAFE dimensions to ensure no overflow
-    const targetWidthPx = Math.floor(safeTargetWidthPt * (96 / 72))
-    const targetHeightPx = Math.floor(safeTargetHeightPt * (96 / 72))
+    // Set canvas size at HIGH RESOLUTION for better image quality
+    // Use 2x resolution multiplier: 1pt = 2 * (96/72) px = 2.67px
+    // This gives us much better image quality when rendered to PDF
+    const resolutionMultiplier = 2 // 2x resolution for sharper images
+    const targetWidthPx = Math.floor(
+        safeTargetWidthPt * (96 / 72) * resolutionMultiplier,
+    )
+    const targetHeightPx = Math.floor(
+        safeTargetHeightPt * (96 / 72) * resolutionMultiplier,
+    )
     canvas.width = targetWidthPx
     canvas.height = targetHeightPx
+
+    // Enable high-quality image rendering
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
 
     // Fill with white background
     ctx.fillStyle = '#ffffff'
@@ -882,18 +984,18 @@ const renderImageContainerToPDF = async (
         drawX = (canvas.width - drawWidth) / 2 // Center horizontally
     }
 
-    // Draw the image scaled to fit exactly within canvas bounds
+    // Draw the image at high resolution using natural dimensions
     ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
 
-    // Convert to image data
-    const imgData = canvas.toDataURL('image/jpeg', 0.98)
+    // Convert to image data at high quality
+    // Use PNG for better quality, or JPEG at maximum quality
+    const imgData = canvas.toDataURL('image/jpeg', 1.0) // Maximum quality
 
-    // Final dimensions MUST match canvas dimensions exactly
-    // Convert canvas pixels back to PDF points to ensure exact match
-    // Canvas was created with: targetWidthPx = safeTargetWidthPt * (96/72)
-    // So: safeTargetWidthPt = targetWidthPx * (72/96)
-    const canvasWidthPt = (canvas.width * 72) / 96
-    const canvasHeightPt = (canvas.height * 72) / 96
+    // Final dimensions: scale down from high-res canvas to PDF points
+    // Canvas was created with: targetWidthPx = safeTargetWidthPt * (96/72) * resolutionMultiplier
+    // So: safeTargetWidthPt = targetWidthPx * (72/96) / resolutionMultiplier
+    const canvasWidthPt = (canvas.width * 72) / (96 * resolutionMultiplier)
+    const canvasHeightPt = (canvas.height * 72) / (96 * resolutionMultiplier)
 
     // Double-check: ensure final dimensions don't exceed available space
     const finalWidthPt = Math.floor(
@@ -927,11 +1029,19 @@ const renderImageContainerToPDF = async (
         const adjustedWidth = Math.floor(finalWidthPt * scale)
         const adjustedHeight = Math.floor(finalHeightPt * scale)
 
-        // Recalculate canvas with adjusted dimensions
-        const adjustedWidthPx = Math.floor(adjustedWidth * (96 / 72))
-        const adjustedHeightPx = Math.floor(adjustedHeight * (96 / 72))
+        // Recalculate canvas with adjusted dimensions at high resolution
+        const adjustedWidthPx = Math.floor(
+            adjustedWidth * (96 / 72) * resolutionMultiplier,
+        )
+        const adjustedHeightPx = Math.floor(
+            adjustedHeight * (96 / 72) * resolutionMultiplier,
+        )
         canvas.width = adjustedWidthPx
         canvas.height = adjustedHeightPx
+
+        // Enable high-quality image rendering
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
 
         // Redraw with adjusted size
         ctx.fillStyle = '#ffffff'
@@ -956,7 +1066,7 @@ const renderImageContainerToPDF = async (
         }
 
         ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
-        const adjustedImgData = canvas.toDataURL('image/jpeg', 0.98)
+        const adjustedImgData = canvas.toDataURL('image/jpeg', 1.0) // Maximum quality
 
         // Add at top-left margin to ensure no overflow
         pdf.addImage(
