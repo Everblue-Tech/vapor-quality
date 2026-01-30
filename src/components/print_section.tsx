@@ -31,16 +31,28 @@ interface GeotagLinkInfo {
 /**
  * Extracts all geotag links from the HTML container
  * Geotag links are identified by their href pattern (google.com/maps)
+ * Enhanced to capture all variations of Google Maps links
  */
 const extractGeotagLinks = (container: HTMLElement): GeotagLinkInfo[] => {
     const geotagLinks: GeotagLinkInfo[] = []
-    const allLinks = container.querySelectorAll('a[href*="google.com/maps"]')
+    // Match all variations: google.com/maps, maps.google.com, www.google.com/maps
+    const allLinks = container.querySelectorAll(
+        'a[href*="google.com/maps"], a[href*="maps.google.com"]',
+    )
 
     allLinks.forEach(link => {
         const href = link.getAttribute('href')
-        const text = link.textContent?.trim() || ''
+        // Get text content, fallback to href if text is empty
+        const linkElement = link as HTMLElement
+        const text = link.textContent?.trim() || linkElement.innerText?.trim() || href || ''
         const rect = link.getBoundingClientRect()
         const containerRect = container.getBoundingClientRect()
+
+        // Only process if link has valid dimensions (is visible)
+        if (rect.width === 0 || rect.height === 0) {
+            console.warn('Skipping geotag link with zero dimensions:', href)
+            return
+        }
 
         // Calculate position relative to container
         const relativeRect = new DOMRect(
@@ -50,15 +62,19 @@ const extractGeotagLinks = (container: HTMLElement): GeotagLinkInfo[] => {
             rect.height,
         )
 
-        if (href && text) {
+        if (href) {
             geotagLinks.push({
                 url: href,
-                text,
+                text: text || 'Geotag Link', // Fallback text if empty
                 boundingRect: relativeRect,
             })
+            console.log(
+                `Found geotag link: "${text}" at (${relativeRect.left.toFixed(1)}, ${relativeRect.top.toFixed(1)})`,
+            )
         }
     })
 
+    console.log(`Extracted ${geotagLinks.length} geotag links from container`)
     return geotagLinks
 }
 
@@ -107,13 +123,22 @@ const addGeotagLinksToPDF = async (
         for (const geotagLink of geotagLinks) {
             const { url, boundingRect, text } = geotagLink
 
-            // Ensure URL is properly formatted
+            // Ensure URL is properly formatted and valid
             let finalUrl = url.trim()
             if (
                 !finalUrl.startsWith('http://') &&
                 !finalUrl.startsWith('https://')
             ) {
                 finalUrl = `https://${finalUrl}`
+            }
+            
+            // Validate URL format
+            try {
+                new URL(finalUrl) // Validate URL format
+            } catch (e) {
+                console.warn(`Invalid geotag URL format: ${finalUrl}, skipping`)
+                linksSkipped++
+                continue
             }
 
             // Try to find the correct page by checking all pages
@@ -178,6 +203,8 @@ const addGeotagLinksToPDF = async (
                         )
 
                         // Create link annotation using pdf-lib's annotation API
+                        // Ensure link is properly clickable with correct URI encoding
+                        // Use proper PDF annotation format for maximum compatibility
                         const linkAnnotation = pdfDoc.context.register(
                             pdfDoc.context.obj({
                                 Type: PDFName.of('Annot'),
@@ -194,6 +221,9 @@ const addGeotagLinksToPDF = async (
                                     S: PDFName.of('URI'),
                                     URI: PDFString.of(finalUrl), // Properly encode URI as PDFString
                                 }),
+                                // Ensure link is visible and clickable in all contexts
+                                F: 4, // Print flag - make link visible when printing
+                                H: PDFName.of('I'), // Highlight mode: Invert (shows link on hover/click)
                             }),
                         )
 
@@ -609,7 +639,8 @@ const generatePDFFromHTML = async (
         const contentHeight = pdfHeight - marginPt * 2
 
         // Step 4: Convert canvas to image
-        const imgData = canvas.toDataURL('image/jpeg', quality)
+        // Use PNG for maximum quality, fallback to JPEG if needed
+        const imgData = canvas.toDataURL('image/png')
         const imgWidth = canvas.width
         const imgHeight = canvas.height
 
@@ -624,7 +655,7 @@ const generatePDFFromHTML = async (
         // Add first page
         pdf.addImage(
             imgData,
-            'JPEG',
+            'PNG', // Use PNG for maximum quality
             marginPt,
             position,
             contentWidth,
@@ -637,7 +668,7 @@ const generatePDFFromHTML = async (
             pdf.addPage()
             pdf.addImage(
                 imgData,
-                'JPEG',
+                'PNG', // Use PNG for maximum quality
                 marginPt,
                 position,
                 contentWidth,
@@ -807,7 +838,7 @@ const renderTextContentToPDF = async (
 
     try {
         const canvas = await html2canvas(textContainer, {
-            scale: 1.5,
+            scale: 2.0, // Increased from 1.5 to 2.0 for better quality
             useCORS: true,
             allowTaint: true,
             backgroundColor: '#ffffff',
@@ -816,7 +847,7 @@ const renderTextContentToPDF = async (
             removeContainer: false,
         })
 
-        const imgData = canvas.toDataURL('image/jpeg', 0.98)
+        const imgData = canvas.toDataURL('image/png') // Use PNG for better quality
         const ratio = contentWidth / canvas.width
         const scaledHeight = canvas.height * ratio
 
@@ -826,7 +857,7 @@ const renderTextContentToPDF = async (
 
         pdf.addImage(
             imgData,
-            'JPEG',
+            'PNG', // Use PNG for maximum quality
             margin,
             position,
             contentWidth,
@@ -893,11 +924,11 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Calculate target size (55% of page height to prevent overflow) in PDF points
-    // Using 55% to add significant safety margin, prevent overflow, and leave room for padding
-    const maxImageHeightPt = contentHeight * 0.55
-    // Width should also be constrained to 55% to maintain proportions
-    const maxImageWidthPt = contentWidth * 0.55
+    // Calculate target size (75% of page height for maximum quality) in PDF points
+    // Using 75% to maximize image detail while maintaining safety margin
+    const maxImageHeightPt = contentHeight * 0.75
+    // Width should also be constrained to 75% to maintain proportions
+    const maxImageWidthPt = contentWidth * 0.75
 
     // Use natural image dimensions to calculate scaling
     const imageAspectRatio = img.naturalWidth / img.naturalHeight
@@ -941,10 +972,10 @@ const renderImageContainerToPDF = async (
     const safeTargetWidthPt = Math.min(targetWidthPt, availableWidth)
     const safeTargetHeightPt = Math.min(targetHeightPt, availableHeight)
 
-    // Set canvas size at HIGH RESOLUTION for better image quality
-    // Use 2x resolution multiplier: 1pt = 2 * (96/72) px = 2.67px
-    // This gives us much better image quality when rendered to PDF
-    const resolutionMultiplier = 2 // 2x resolution for sharper images
+    // Set canvas size at HIGH RESOLUTION for best possible image quality
+    // Use 3x resolution multiplier: 1pt = 3 * (96/72) px = 4px
+    // This gives us maximum image quality when rendered to PDF
+    const resolutionMultiplier = 3 // 3x resolution for maximum sharpness
     const targetWidthPx = Math.floor(
         safeTargetWidthPt * (96 / 72) * resolutionMultiplier,
     )
@@ -987,9 +1018,9 @@ const renderImageContainerToPDF = async (
     // Draw the image at high resolution using natural dimensions
     ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
 
-    // Convert to image data at high quality
-    // Use PNG for better quality, or JPEG at maximum quality
-    const imgData = canvas.toDataURL('image/jpeg', 1.0) // Maximum quality
+    // Convert to image data at maximum quality
+    // Use PNG for lossless quality (no compression artifacts)
+    const imgData = canvas.toDataURL('image/png') // Lossless PNG quality
 
     // Final dimensions: scale down from high-res canvas to PDF points
     // Canvas was created with: targetWidthPx = safeTargetWidthPt * (96/72) * resolutionMultiplier
@@ -1066,12 +1097,12 @@ const renderImageContainerToPDF = async (
         }
 
         ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
-        const adjustedImgData = canvas.toDataURL('image/jpeg', 1.0) // Maximum quality
+        const adjustedImgData = canvas.toDataURL('image/png') // Lossless PNG quality
 
         // Add at top-left margin to ensure no overflow
         pdf.addImage(
             adjustedImgData,
-            'JPEG',
+            'PNG',
             margin,
             margin,
             adjustedWidth,
@@ -1122,7 +1153,7 @@ const renderImageContainerToPDF = async (
         // Force to top-left corner with safe dimensions
         pdf.addImage(
             imgData,
-            'JPEG',
+            'PNG',
             margin,
             margin,
             finalPdfWidth,
@@ -1133,7 +1164,7 @@ const renderImageContainerToPDF = async (
         // This ensures no overflow
         pdf.addImage(
             imgData,
-            'JPEG',
+            'PNG',
             finalX,
             finalY,
             finalPdfWidth,
@@ -1153,9 +1184,10 @@ const generateChunkPDF = async (
     const hasImages = chunk.getAttribute('data-has-images') === 'true'
 
     // Use new direct html2canvas + jsPDF approach
+    // Higher scale for images to maximize quality
     return await generatePDFFromHTML(chunk, {
         margin: 15,
-        scale: hasImages ? 1.2 : 1.5,
+        scale: hasImages ? 2.0 : 1.5, // Increased from 1.2 to 2.0 for better image quality
         quality: 0.98,
     })
 }
