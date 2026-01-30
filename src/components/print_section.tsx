@@ -151,16 +151,21 @@ const addGeotagLinksToPDF = async (
                 const pageSize = page.getSize()
 
                 // Calculate which page this link should be on based on content height
+                // Account for the fact that images get their own pages, so content might be spread out
                 // Each page can hold approximately contentHeight of content
                 const estimatedPageHeight = contentHeight
-                const relativeTop = boundingRect.top % estimatedPageHeight
-
-                // Only check this page if the link's top position suggests it's on this page
+                
+                // Calculate which page the link should be on
                 const linkTopPage = Math.floor(
                     boundingRect.top / estimatedPageHeight,
                 )
+                
+                // Only check this page if the link's top position suggests it's on this page
+                // Allow checking adjacent pages for better matching
                 if (
                     linkTopPage !== pageIndex &&
+                    linkTopPage !== pageIndex - 1 &&
+                    linkTopPage !== pageIndex + 1 &&
                     linkTopPage < pages.length - 1
                 ) {
                     continue
@@ -169,6 +174,11 @@ const addGeotagLinksToPDF = async (
                 // Calculate position within the page
                 // PDF coordinates: (0,0) is bottom-left, DOM: (0,0) is top-left
                 const pdfX = margin + boundingRect.left * scaleX
+                
+                // Calculate relative position on the page
+                // Account for which page we're on
+                const relativeTop = boundingRect.top - (linkTopPage * estimatedPageHeight)
+                
                 // Convert from top-left (DOM) to bottom-left (PDF) coordinate system
                 const pdfY =
                     pageSize.height -
@@ -203,35 +213,28 @@ const addGeotagLinksToPDF = async (
                         )
 
                         // Create link annotation using pdf-lib's annotation API
-                        // Ensure link is properly clickable with correct URI encoding
-                        // Use proper PDF annotation format for maximum compatibility
-                        const linkAnnotation = pdfDoc.context.register(
-                            pdfDoc.context.obj({
-                                Type: PDFName.of('Annot'),
-                                Subtype: PDFName.of('Link'),
-                                Rect: [
-                                    clampedX,
-                                    clampedY,
-                                    clampedX + linkWidth,
-                                    clampedY + linkHeight,
-                                ],
-                                Border: [0, 0, 0], // No visible border
-                                A: pdfDoc.context.obj({
-                                    Type: PDFName.of('Action'),
-                                    S: PDFName.of('URI'),
-                                    URI: PDFString.of(finalUrl), // Properly encode URI as PDFString
-                                }),
-                                // Ensure link is visible and clickable in all contexts
-                                F: 4, // Print flag - make link visible when printing
-                                H: PDFName.of('I'), // Highlight mode: Invert (shows link on hover/click)
+                        // Use proper PDF annotation format for maximum compatibility and clickability
+                        // Rect must be an array of 4 numbers: [x1, y1, x2, y2] in PDF coordinates
+                        const linkAnnotationDict = pdfDoc.context.obj({
+                            Type: PDFName.of('Annot'),
+                            Subtype: PDFName.of('Link'),
+                            Rect: [clampedX, clampedY, clampedX + linkWidth, clampedY + linkHeight],
+                            Border: [0, 0, 0], // No visible border: [horizontal, vertical, width]
+                            A: pdfDoc.context.obj({
+                                Type: PDFName.of('Action'),
+                                S: PDFName.of('URI'),
+                                URI: PDFString.of(finalUrl), // Properly encode URI as PDFString
                             }),
-                        )
+                            // Ensure link is visible and clickable
+                            F: 4, // Print flag - make link visible when printing
+                            H: PDFName.of('I'), // Highlight mode: Invert (shows link on hover/click)
+                        })
+                        
+                        const linkAnnotation = pdfDoc.context.register(linkAnnotationDict)
 
                         // Get or create the Annots array for this page
                         const pageDict = page.node
-                        const existingAnnots = pageDict.get(
-                            PDFName.of('Annots'),
-                        )
+                        let existingAnnots = pageDict.get(PDFName.of('Annots'))
 
                         // Build array of annotations (existing + new)
                         const annotsToAdd: any[] = []
@@ -263,7 +266,7 @@ const addGeotagLinksToPDF = async (
                         }
                         annotsToAdd.push(linkAnnotation)
 
-                        // Create and set the annotations array
+                        // Create and set the annotations array using proper pdf-lib API
                         const annotsArray = pdfDoc.context.register(
                             pdfDoc.context.obj(annotsToAdd),
                         )
@@ -1131,14 +1134,10 @@ const renderImageContainerToPDF = async (
     const maxRight = pdfWidth - margin
     const maxBottom = pdfHeight - margin
 
-    // Use the EXACT canvas dimensions converted to points
-    // This ensures the PDF image matches the canvas exactly
-    const pdfImageWidth = (canvas.width * 72) / 96
-    const pdfImageHeight = (canvas.height * 72) / 96
-
-    // Final safety check: ensure dimensions don't exceed available space
-    const finalPdfWidth = Math.floor(Math.min(pdfImageWidth, availableWidth))
-    const finalPdfHeight = Math.floor(Math.min(pdfImageHeight, availableHeight))
+    // Use finalWidthPt and finalHeightPt which preserve aspect ratio
+    // These were calculated from the image's natural aspect ratio
+    const finalPdfWidth = finalWidthPt
+    const finalPdfHeight = finalHeightPt
 
     // Verify position is safe
     if (
@@ -1150,7 +1149,7 @@ const renderImageContainerToPDF = async (
         console.warn(
             `Image position unsafe. Using safe position. X: ${finalX}, Y: ${finalY}, W: ${finalPdfWidth}, H: ${finalPdfHeight}`,
         )
-        // Force to top-left corner with safe dimensions
+        // Force to top-left corner with safe dimensions (preserving aspect ratio)
         pdf.addImage(
             imgData,
             'PNG',
@@ -1160,8 +1159,7 @@ const renderImageContainerToPDF = async (
             finalPdfHeight,
         )
     } else {
-        // Add image to PDF - using exact canvas dimensions converted to points
-        // This ensures no overflow
+        // Add image to PDF - using dimensions that preserve aspect ratio
         pdf.addImage(
             imgData,
             'PNG',
