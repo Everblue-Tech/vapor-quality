@@ -44,7 +44,11 @@ const extractGeotagLinks = (container: HTMLElement): GeotagLinkInfo[] => {
         const href = link.getAttribute('href')
         // Get text content, fallback to href if text is empty
         const linkElement = link as HTMLElement
-        const text = link.textContent?.trim() || linkElement.innerText?.trim() || href || ''
+        const text =
+            link.textContent?.trim() ||
+            linkElement.innerText?.trim() ||
+            href ||
+            ''
         const rect = link.getBoundingClientRect()
         const containerRect = container.getBoundingClientRect()
 
@@ -131,7 +135,7 @@ const addGeotagLinksToPDF = async (
             ) {
                 finalUrl = `https://${finalUrl}`
             }
-            
+
             // Validate URL format
             try {
                 new URL(finalUrl) // Validate URL format
@@ -154,12 +158,12 @@ const addGeotagLinksToPDF = async (
                 // Account for the fact that images get their own pages, so content might be spread out
                 // Each page can hold approximately contentHeight of content
                 const estimatedPageHeight = contentHeight
-                
+
                 // Calculate which page the link should be on
                 const linkTopPage = Math.floor(
                     boundingRect.top / estimatedPageHeight,
                 )
-                
+
                 // Only check this page if the link's top position suggests it's on this page
                 // Allow checking adjacent pages for better matching
                 if (
@@ -174,11 +178,12 @@ const addGeotagLinksToPDF = async (
                 // Calculate position within the page
                 // PDF coordinates: (0,0) is bottom-left, DOM: (0,0) is top-left
                 const pdfX = margin + boundingRect.left * scaleX
-                
+
                 // Calculate relative position on the page
                 // Account for which page we're on
-                const relativeTop = boundingRect.top - (linkTopPage * estimatedPageHeight)
-                
+                const relativeTop =
+                    boundingRect.top - linkTopPage * estimatedPageHeight
+
                 // Convert from top-left (DOM) to bottom-left (PDF) coordinate system
                 const pdfY =
                     pageSize.height -
@@ -218,7 +223,12 @@ const addGeotagLinksToPDF = async (
                         const linkAnnotationDict = pdfDoc.context.obj({
                             Type: PDFName.of('Annot'),
                             Subtype: PDFName.of('Link'),
-                            Rect: [clampedX, clampedY, clampedX + linkWidth, clampedY + linkHeight],
+                            Rect: [
+                                clampedX,
+                                clampedY,
+                                clampedX + linkWidth,
+                                clampedY + linkHeight,
+                            ],
                             Border: [0, 0, 0], // No visible border: [horizontal, vertical, width]
                             A: pdfDoc.context.obj({
                                 Type: PDFName.of('Action'),
@@ -229,8 +239,9 @@ const addGeotagLinksToPDF = async (
                             F: 4, // Print flag - make link visible when printing
                             H: PDFName.of('I'), // Highlight mode: Invert (shows link on hover/click)
                         })
-                        
-                        const linkAnnotation = pdfDoc.context.register(linkAnnotationDict)
+
+                        const linkAnnotation =
+                            pdfDoc.context.register(linkAnnotationDict)
 
                         // Get or create the Annots array for this page
                         const pageDict = page.node
