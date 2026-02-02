@@ -22,26 +22,27 @@ interface PrintSectionProps {
 /**
  * Interface for geotag link information
  */
-interface GeotagLinkInfo {
+interface HyperlinkInfo {
     url: string
     text: string
     boundingRect: DOMRect
 }
 
 /**
- * Extracts all geotag links from the HTML container
- * Geotag links are identified by their href pattern (google.com/maps)
- * Enhanced to capture all variations of Google Maps links
+ * Extracts all hyperlinks from the HTML container
+ * This includes all <a> tags with href attributes
  */
-const extractGeotagLinks = (container: HTMLElement): GeotagLinkInfo[] => {
-    const geotagLinks: GeotagLinkInfo[] = []
-    // Match all variations: google.com/maps, maps.google.com, www.google.com/maps
-    const allLinks = container.querySelectorAll(
-        'a[href*="google.com/maps"], a[href*="maps.google.com"]',
-    )
+const extractAllHyperlinks = (container: HTMLElement): HyperlinkInfo[] => {
+    const hyperlinks: HyperlinkInfo[] = []
+    // Extract ALL links with href attributes
+    const allLinks = container.querySelectorAll('a[href]')
 
     allLinks.forEach(link => {
         const href = link.getAttribute('href')
+        if (!href) {
+            return // Skip links without href
+        }
+
         // Get text content, fallback to href if text is empty
         const linkElement = link as HTMLElement
         const text =
@@ -54,7 +55,7 @@ const extractGeotagLinks = (container: HTMLElement): GeotagLinkInfo[] => {
 
         // Only process if link has valid dimensions (is visible)
         if (rect.width === 0 || rect.height === 0) {
-            console.warn('Skipping geotag link with zero dimensions:', href)
+            console.warn('Skipping hyperlink with zero dimensions:', href)
             return
         }
 
@@ -66,29 +67,27 @@ const extractGeotagLinks = (container: HTMLElement): GeotagLinkInfo[] => {
             rect.height,
         )
 
-        if (href) {
-            geotagLinks.push({
-                url: href,
-                text: text || 'Geotag Link', // Fallback text if empty
-                boundingRect: relativeRect,
-            })
-            console.log(
-                `Found geotag link: "${text}" at (${relativeRect.left.toFixed(1)}, ${relativeRect.top.toFixed(1)})`,
-            )
-        }
+        hyperlinks.push({
+            url: href,
+            text: text || 'Link', // Fallback text if empty
+            boundingRect: relativeRect,
+        })
+        console.log(
+            `Found hyperlink: "${text}" at (${relativeRect.left.toFixed(1)}, ${relativeRect.top.toFixed(1)})`,
+        )
     })
 
-    console.log(`Extracted ${geotagLinks.length} geotag links from container`)
-    return geotagLinks
+    console.log(`Extracted ${hyperlinks.length} hyperlinks from container`)
+    return hyperlinks
 }
 
 /**
- * Adds clickable link annotations to geotags in the PDF
+ * Adds clickable link annotations to hyperlinks in the PDF
  * Updated for html2canvas + jsPDF approach with proper coordinate mapping
  */
-const addGeotagLinksToPDF = async (
+const addHyperlinksToPDF = async (
     pdfBlob: Blob,
-    geotagLinks: GeotagLinkInfo[],
+    hyperlinks: HyperlinkInfo[],
     containerHeight: number,
     containerWidth: number,
 ): Promise<Blob> => {
@@ -97,8 +96,8 @@ const addGeotagLinksToPDF = async (
         const pdfDoc = await PDFDocument.load(pdfBytes)
         const pages = pdfDoc.getPages()
 
-        if (pages.length === 0 || geotagLinks.length === 0) {
-            console.log('No pages or geotag links to process')
+        if (pages.length === 0 || hyperlinks.length === 0) {
+            console.log('No pages or hyperlinks to process')
             return pdfBlob
         }
 
@@ -117,15 +116,15 @@ const addGeotagLinksToPDF = async (
         const scaleY = contentHeight / containerHeight
 
         console.log(
-            `Adding ${geotagLinks.length} geotag links to PDF with scale factors: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)}`,
+            `Adding ${hyperlinks.length} hyperlinks to PDF with scale factors: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)}`,
         )
 
-        // Process each geotag link
+        // Process each hyperlink
         let linksAdded = 0
         let linksSkipped = 0
 
-        for (const geotagLink of geotagLinks) {
-            const { url, boundingRect, text } = geotagLink
+        for (const hyperlink of hyperlinks) {
+            const { url, boundingRect, text } = hyperlink
 
             // Ensure URL is properly formatted and valid
             let finalUrl = url.trim()
@@ -138,11 +137,27 @@ const addGeotagLinksToPDF = async (
 
             // Validate URL format
             try {
+                // Handle relative URLs by making them absolute if needed
+                if (finalUrl.startsWith('/') || finalUrl.startsWith('#')) {
+                    // Skip anchor links and relative paths that can't be resolved
+                    console.warn(
+                        `Skipping relative URL: ${finalUrl} (cannot be made absolute)`,
+                    )
+                    linksSkipped++
+                    continue
+                }
                 new URL(finalUrl) // Validate URL format
             } catch (e) {
-                console.warn(`Invalid geotag URL format: ${finalUrl}, skipping`)
-                linksSkipped++
-                continue
+                // If URL is invalid, try to make it absolute
+                try {
+                    finalUrl = new URL(finalUrl, window.location.origin).href
+                } catch (e2) {
+                    console.warn(
+                        `Invalid hyperlink URL format: ${finalUrl}, skipping`,
+                    )
+                    linksSkipped++
+                    continue
+                }
             }
 
             // Try to find the correct page by checking all pages
@@ -284,14 +299,14 @@ const addGeotagLinksToPDF = async (
                         pageDict.set(PDFName.of('Annots'), annotsArray)
 
                         console.log(
-                            `✓ Added geotag link "${text}" to page ${pageIndex + 1} at (${clampedX.toFixed(1)}, ${clampedY.toFixed(1)}) with URL: ${finalUrl}`,
+                            `✓ Added hyperlink "${text}" to page ${pageIndex + 1} at (${clampedX.toFixed(1)}, ${clampedY.toFixed(1)}) with URL: ${finalUrl}`,
                         )
                         linksAdded++
                         linkAdded = true
                         break // Found the right page, move to next link
                     } catch (linkError) {
                         console.error(
-                            `Error adding geotag link "${text}" to page ${pageIndex + 1}:`,
+                            `Error adding hyperlink "${text}" to page ${pageIndex + 1}:`,
                             linkError,
                         )
                         // Continue trying other pages
@@ -301,14 +316,14 @@ const addGeotagLinksToPDF = async (
 
             if (!linkAdded) {
                 console.warn(
-                    `✗ Could not place geotag link "${text}" on any page. Position: top=${boundingRect.top.toFixed(1)}, left=${boundingRect.left.toFixed(1)}, URL: ${finalUrl}`,
+                    `✗ Could not place hyperlink "${text}" on any page. Position: top=${boundingRect.top.toFixed(1)}, left=${boundingRect.left.toFixed(1)}, URL: ${finalUrl}`,
                 )
                 linksSkipped++
             }
         }
 
         console.log(
-            `Geotag links summary: ${linksAdded} added, ${linksSkipped} skipped out of ${geotagLinks.length} total`,
+            `Hyperlinks summary: ${linksAdded} added, ${linksSkipped} skipped out of ${hyperlinks.length} total`,
         )
 
         // Save the modified PDF
@@ -320,7 +335,7 @@ const addGeotagLinksToPDF = async (
             type: 'application/pdf',
         })
     } catch (error) {
-        console.error('Could not add geotag links to PDF:', error)
+        console.error('Could not add hyperlinks to PDF:', error)
         return pdfBlob
     }
 }
@@ -1934,11 +1949,9 @@ const PrintSection: FC<PrintSectionProps> = ({
             // preprocess images for better PDF quality (after they're loaded)
             await preprocessImagesForPDF(wrapper as HTMLElement)
 
-            // Extract geotag links before PDF generation
-            const geotagLinks = extractGeotagLinks(wrapper as HTMLElement)
-            console.log(
-                `Found ${geotagLinks.length} geotag links to add to PDF`,
-            )
+            // Extract all hyperlinks before PDF generation
+            const hyperlinks = extractAllHyperlinks(wrapper as HTMLElement)
+            console.log(`Found ${hyperlinks.length} hyperlinks to add to PDF`)
 
             // Check if content is too large and needs chunking
             const contentHeight = wrapper.scrollHeight
@@ -2107,10 +2120,10 @@ const PrintSection: FC<PrintSectionProps> = ({
             // Remove blank pages from the end of the PDF
             const cleanedPdfBlob = await removeBlankPagesFromPDF(finalPdfBlob)
 
-            // Add clickable geotag links to the PDF
-            const pdfWithLinks = await addGeotagLinksToPDF(
+            // Add clickable hyperlinks to the PDF
+            const pdfWithLinks = await addHyperlinksToPDF(
                 cleanedPdfBlob,
-                geotagLinks,
+                hyperlinks,
                 contentHeight,
                 contentWidth,
             )
