@@ -160,163 +160,128 @@ const addHyperlinksToPDF = async (
                 }
             }
 
-            // Try to find the correct page by checking all pages
-            // Since pages can have variable heights (images get their own pages),
-            // we'll try each page and see if the coordinates fit
+            // Simplified approach: Add link to the first page (page 0)
+            // since text content with links is typically on the first page
+            // Image pages don't contain clickable links
             let linkAdded = false
 
-            for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
-                const page = pages[pageIndex]
-                const pageSize = page.getSize()
+            // Get the first page for link placement
+            const page = pages[0]
+            const pageSize = page.getSize()
 
-                // Calculate which page this link should be on based on content height
-                // Account for the fact that images get their own pages, so content might be spread out
-                // Each page can hold approximately contentHeight of content
-                const estimatedPageHeight = contentHeight
+            // Calculate position on the first page
+            // PDF coordinates: (0,0) is bottom-left, DOM: (0,0) is top-left
+            const pdfX = margin + boundingRect.left * scaleX
 
-                // Calculate which page the link should be on
-                const linkTopPage = Math.floor(
-                    boundingRect.top / estimatedPageHeight,
-                )
+            // Convert from top-left (DOM) to bottom-left (PDF) coordinate system
+            const pdfY =
+                pageSize.height -
+                margin -
+                boundingRect.top * scaleY -
+                boundingRect.height * scaleY
 
-                // Only check this page if the link's top position suggests it's on this page
-                // Allow checking adjacent pages for better matching
-                if (
-                    linkTopPage !== pageIndex &&
-                    linkTopPage !== pageIndex - 1 &&
-                    linkTopPage !== pageIndex + 1 &&
-                    linkTopPage < pages.length - 1
-                ) {
-                    continue
-                }
+            // Calculate link bounds with minimum size for clickability
+            const linkWidth = Math.max(50, boundingRect.width * scaleX) // Minimum 50pt width for easier clicking
+            const linkHeight = Math.max(15, boundingRect.height * scaleY) // Minimum 15pt height
 
-                // Calculate position within the page
-                // PDF coordinates: (0,0) is bottom-left, DOM: (0,0) is top-left
-                const pdfX = margin + boundingRect.left * scaleX
+            // Check if coordinates are within page bounds
+            const tolerance = 10
+            if (
+                pdfX >= margin - tolerance &&
+                pdfX + linkWidth <= pageSize.width - margin + tolerance &&
+                pdfY >= margin - tolerance &&
+                pdfY + linkHeight <= pageSize.height - margin + tolerance
+            ) {
+                const pageIndex = 0 // Using first page
+                try {
+                    // Clamp coordinates to page bounds
+                    const clampedX = Math.max(
+                        margin,
+                        Math.min(pdfX, pageSize.width - margin - linkWidth),
+                    )
+                    const clampedY = Math.max(
+                        margin,
+                        Math.min(pdfY, pageSize.height - margin - linkHeight),
+                    )
 
-                // Calculate relative position on the page
-                // Account for which page we're on
-                const relativeTop =
-                    boundingRect.top - linkTopPage * estimatedPageHeight
+                    // Create link annotation using pdf-lib's annotation API
+                    // Use proper PDF annotation format for maximum compatibility and clickability
+                    // Rect must be an array of 4 numbers: [x1, y1, x2, y2] in PDF coordinates
+                    const linkAnnotationDict = pdfDoc.context.obj({
+                        Type: PDFName.of('Annot'),
+                        Subtype: PDFName.of('Link'),
+                        Rect: [
+                            clampedX,
+                            clampedY,
+                            clampedX + linkWidth,
+                            clampedY + linkHeight,
+                        ],
+                        Border: [0, 0, 0], // No visible border: [horizontal, vertical, width]
+                        A: pdfDoc.context.obj({
+                            Type: PDFName.of('Action'),
+                            S: PDFName.of('URI'),
+                            URI: PDFString.of(finalUrl), // Properly encode URI as PDFString
+                        }),
+                        // Ensure link is visible and clickable
+                        F: 4, // Print flag - make link visible when printing
+                        H: PDFName.of('I'), // Highlight mode: Invert (shows link on hover/click)
+                    })
 
-                // Convert from top-left (DOM) to bottom-left (PDF) coordinate system
-                const pdfY =
-                    pageSize.height -
-                    margin -
-                    relativeTop * scaleY -
-                    boundingRect.height * scaleY
+                    const linkAnnotation =
+                        pdfDoc.context.register(linkAnnotationDict)
 
-                // Calculate link bounds
-                const linkWidth = Math.max(1, boundingRect.width * scaleX) // Ensure minimum width
-                const linkHeight = Math.max(1, boundingRect.height * scaleY) // Ensure minimum height
+                    // Get or create the Annots array for this page
+                    const pageDict = page.node
+                    let existingAnnots = pageDict.get(PDFName.of('Annots'))
 
-                // Check if coordinates are within page bounds (with some tolerance)
-                const tolerance = 5 // Allow 5pt tolerance
-                if (
-                    pdfX >= margin - tolerance &&
-                    pdfX + linkWidth <= pageSize.width - margin + tolerance &&
-                    pdfY >= margin - tolerance &&
-                    pdfY + linkHeight <= pageSize.height - margin + tolerance
-                ) {
-                    try {
-                        // Clamp coordinates to page bounds
-                        const clampedX = Math.max(
-                            margin,
-                            Math.min(pdfX, pageSize.width - margin - linkWidth),
-                        )
-                        const clampedY = Math.max(
-                            margin,
-                            Math.min(
-                                pdfY,
-                                pageSize.height - margin - linkHeight,
-                            ),
-                        )
-
-                        // Create link annotation using pdf-lib's annotation API
-                        // Use proper PDF annotation format for maximum compatibility and clickability
-                        // Rect must be an array of 4 numbers: [x1, y1, x2, y2] in PDF coordinates
-                        const linkAnnotationDict = pdfDoc.context.obj({
-                            Type: PDFName.of('Annot'),
-                            Subtype: PDFName.of('Link'),
-                            Rect: [
-                                clampedX,
-                                clampedY,
-                                clampedX + linkWidth,
-                                clampedY + linkHeight,
-                            ],
-                            Border: [0, 0, 0], // No visible border: [horizontal, vertical, width]
-                            A: pdfDoc.context.obj({
-                                Type: PDFName.of('Action'),
-                                S: PDFName.of('URI'),
-                                URI: PDFString.of(finalUrl), // Properly encode URI as PDFString
-                            }),
-                            // Ensure link is visible and clickable
-                            F: 4, // Print flag - make link visible when printing
-                            H: PDFName.of('I'), // Highlight mode: Invert (shows link on hover/click)
-                        })
-
-                        const linkAnnotation =
-                            pdfDoc.context.register(linkAnnotationDict)
-
-                        // Get or create the Annots array for this page
-                        const pageDict = page.node
-                        let existingAnnots = pageDict.get(PDFName.of('Annots'))
-
-                        // Build array of annotations (existing + new)
-                        const annotsToAdd: any[] = []
-                        if (existingAnnots) {
-                            try {
-                                // Try to get the actual array from the PDF reference
-                                const existingAnnotsRef = existingAnnots as any
-                                if (
-                                    existingAnnotsRef &&
-                                    existingAnnotsRef.array
-                                ) {
-                                    const existingArray =
-                                        existingAnnotsRef.array()
-                                    if (Array.isArray(existingArray)) {
-                                        annotsToAdd.push(...existingArray)
-                                    } else {
-                                        annotsToAdd.push(existingAnnotsRef)
-                                    }
+                    // Build array of annotations (existing + new)
+                    const annotsToAdd: any[] = []
+                    if (existingAnnots) {
+                        try {
+                            // Try to get the actual array from the PDF reference
+                            const existingAnnotsRef = existingAnnots as any
+                            if (existingAnnotsRef && existingAnnotsRef.array) {
+                                const existingArray = existingAnnotsRef.array()
+                                if (Array.isArray(existingArray)) {
+                                    annotsToAdd.push(...existingArray)
                                 } else {
                                     annotsToAdd.push(existingAnnotsRef)
                                 }
-                            } catch (e) {
-                                // If we can't parse existing annotations, just add the new one
-                                console.warn(
-                                    `Could not parse existing annotations on page ${pageIndex + 1}, adding new link:`,
-                                    e,
-                                )
+                            } else {
+                                annotsToAdd.push(existingAnnotsRef)
                             }
+                        } catch (e) {
+                            // If we can't parse existing annotations, just add the new one
+                            console.warn(
+                                `Could not parse existing annotations on page ${pageIndex + 1}, adding new link:`,
+                                e,
+                            )
                         }
-                        annotsToAdd.push(linkAnnotation)
-
-                        // Create and set the annotations array using proper pdf-lib API
-                        const annotsArray = pdfDoc.context.register(
-                            pdfDoc.context.obj(annotsToAdd),
-                        )
-                        pageDict.set(PDFName.of('Annots'), annotsArray)
-
-                        console.log(
-                            `✓ Added hyperlink "${text}" to page ${pageIndex + 1} at (${clampedX.toFixed(1)}, ${clampedY.toFixed(1)}) with URL: ${finalUrl}`,
-                        )
-                        linksAdded++
-                        linkAdded = true
-                        break // Found the right page, move to next link
-                    } catch (linkError) {
-                        console.error(
-                            `Error adding hyperlink "${text}" to page ${pageIndex + 1}:`,
-                            linkError,
-                        )
-                        // Continue trying other pages
                     }
+                    annotsToAdd.push(linkAnnotation)
+
+                    // Create and set the annotations array using proper pdf-lib API
+                    const annotsArray = pdfDoc.context.register(
+                        pdfDoc.context.obj(annotsToAdd),
+                    )
+                    pageDict.set(PDFName.of('Annots'), annotsArray)
+
+                    console.log(
+                        `✓ Added hyperlink "${text}" to page 1 at (${clampedX.toFixed(1)}, ${clampedY.toFixed(1)}) with URL: ${finalUrl}`,
+                    )
+                    linksAdded++
+                    linkAdded = true
+                } catch (linkError) {
+                    console.error(
+                        `Error adding hyperlink "${text}":`,
+                        linkError,
+                    )
                 }
             }
 
             if (!linkAdded) {
                 console.warn(
-                    `✗ Could not place hyperlink "${text}" on any page. Position: top=${boundingRect.top.toFixed(1)}, left=${boundingRect.left.toFixed(1)}, URL: ${finalUrl}`,
+                    `✗ Could not place hyperlink "${text}". Position: top=${boundingRect.top.toFixed(1)}, left=${boundingRect.left.toFixed(1)}, URL: ${finalUrl}`,
                 )
                 linksSkipped++
             }
@@ -953,39 +918,41 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Calculate target size (90% of page for full quality) in PDF points
-    // Using 90% to maximize image detail while leaving minimal margin
-    const maxImageHeightPt = contentHeight * 0.9
-    // Width should also be constrained to 90% to maintain proportions
-    const maxImageWidthPt = contentWidth * 0.9
-
-    // Use natural image dimensions to calculate scaling
+    // Get the image's natural aspect ratio - this MUST be preserved
     const imageAspectRatio = img.naturalWidth / img.naturalHeight
-    let targetWidthPt = maxImageWidthPt
-    let targetHeightPt = maxImageWidthPt / imageAspectRatio
 
-    // If height exceeds max (65% of page height), scale by height instead
-    if (targetHeightPt > maxImageHeightPt) {
-        targetHeightPt = maxImageHeightPt
-        targetWidthPt = maxImageHeightPt * imageAspectRatio
+    // Calculate available space on the page
+    const availableWidth = pdfWidth - margin * 2
+    const availableHeight = pdfHeight - margin * 2
+
+    // Calculate the maximum size that fits on the page while preserving aspect ratio
+    // Use 90% of page for maximum image size
+    const maxWidth = availableWidth * 0.9
+    const maxHeight = availableHeight * 0.9
+
+    // Calculate dimensions that fit within the page while preserving aspect ratio
+    let finalWidthPt: number
+    let finalHeightPt: number
+
+    if (imageAspectRatio > maxWidth / maxHeight) {
+        // Image is wider than the available space - constrain by width
+        finalWidthPt = maxWidth
+        finalHeightPt = maxWidth / imageAspectRatio
+    } else {
+        // Image is taller than the available space - constrain by height
+        finalHeightPt = maxHeight
+        finalWidthPt = maxHeight * imageAspectRatio
     }
 
-    // Ensure dimensions don't exceed maximums (strict safety check)
-    targetWidthPt = Math.min(targetWidthPt, maxImageWidthPt)
-    targetHeightPt = Math.min(targetHeightPt, maxImageHeightPt)
+    console.log(
+        `Image: ${img.naturalWidth}x${img.naturalHeight}px (aspect ratio: ${imageAspectRatio.toFixed(3)}) -> PDF: ${finalWidthPt.toFixed(0)}x${finalHeightPt.toFixed(0)}pt`,
+    )
 
-    // Additional strict checks: ensure dimensions don't exceed available space
-    // Account for margins on both sides
-    const availableSpaceWidth = pdfWidth - margin * 2
-    const availableSpaceHeight = pdfHeight - margin * 2
-    targetWidthPt = Math.min(targetWidthPt, availableSpaceWidth)
-    targetHeightPt = Math.min(targetHeightPt, availableSpaceHeight)
-
-    // Create a new page for this image (BEFORE rendering)
+    // Create a new page for this image
     pdf.addPage()
 
-    // Create a canvas directly from the image
-    // This ensures we get the exact image without any container artifacts
+    // Create a canvas using the image's NATIVE dimensions for maximum quality
+    // This preserves full resolution without any scaling artifacts
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
     if (!ctx) {
@@ -993,40 +960,9 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Calculate available space FIRST to ensure we don't exceed it
-    const availableWidth = pdfWidth - margin * 2
-    const availableHeight = pdfHeight - margin * 2
-
-    // Ensure target dimensions don't exceed available space
-    const safeTargetWidthPt = Math.min(targetWidthPt, availableWidth)
-    const safeTargetHeightPt = Math.min(targetHeightPt, availableHeight)
-
-    // Set canvas size at MAXIMUM RESOLUTION for best possible image quality
-    // Use the larger of: 4x resolution multiplier OR the image's native dimensions
-    // This preserves full quality for high-resolution images
-    const resolutionMultiplier = 4 // 4x resolution for maximum sharpness
-    const scaledWidthPx = Math.floor(
-        safeTargetWidthPt * (96 / 72) * resolutionMultiplier,
-    )
-    const scaledHeightPx = Math.floor(
-        safeTargetHeightPt * (96 / 72) * resolutionMultiplier,
-    )
-
-    // Use the image's native dimensions if they're higher quality
-    // This preserves full quality for high-resolution source images
-    const useNativeDimensions =
-        img.naturalWidth > scaledWidthPx || img.naturalHeight > scaledHeightPx
-    const targetWidthPx = useNativeDimensions ? img.naturalWidth : scaledWidthPx
-    const targetHeightPx = useNativeDimensions
-        ? img.naturalHeight
-        : scaledHeightPx
-
-    console.log(
-        `Image quality: Using ${useNativeDimensions ? 'native' : 'scaled'} dimensions: ${targetWidthPx}x${targetHeightPx}px (native: ${img.naturalWidth}x${img.naturalHeight}px)`,
-    )
-
-    canvas.width = targetWidthPx
-    canvas.height = targetHeightPx
+    // Use native image dimensions for the canvas (maximum quality)
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
 
     // Enable high-quality image rendering
     ctx.imageSmoothingEnabled = true
@@ -1036,39 +972,15 @@ const renderImageContainerToPDF = async (
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // Calculate how to draw the image to fit exactly within canvas bounds
-    // Use the image's natural dimensions to maintain aspect ratio
-    const imgAspectRatio = img.naturalWidth / img.naturalHeight
-    const canvasAspectRatio = canvas.width / canvas.height
+    // Draw the image at its full native size (no scaling, maximum quality)
+    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight)
 
-    let drawWidth = canvas.width
-    let drawHeight = canvas.height
-    let drawX = 0
-    let drawY = 0
+    // Convert to image data at maximum quality using PNG (lossless)
+    const imgData = canvas.toDataURL('image/png')
 
-    // If image is wider than canvas aspect ratio, fit to width
-    if (imgAspectRatio > canvasAspectRatio) {
-        drawWidth = canvas.width
-        drawHeight = canvas.width / imgAspectRatio
-        drawY = (canvas.height - drawHeight) / 2 // Center vertically
-    } else {
-        // Image is taller, fit to height
-        drawHeight = canvas.height
-        drawWidth = canvas.height * imgAspectRatio
-        drawX = (canvas.width - drawWidth) / 2 // Center horizontally
-    }
-
-    // Draw the image at high resolution using natural dimensions
-    ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
-
-    // Convert to image data at maximum quality
-    // Use PNG for lossless quality (no compression artifacts)
-    const imgData = canvas.toDataURL('image/png') // Lossless PNG quality
-
-    // Final dimensions: use the safe target dimensions which preserve aspect ratio
-    // These were calculated to fit within the available page space
-    const finalWidthPt = safeTargetWidthPt
-    const finalHeightPt = safeTargetHeightPt
+    console.log(
+        `Canvas: ${canvas.width}x${canvas.height}px -> PDF output: ${finalWidthPt.toFixed(0)}x${finalHeightPt.toFixed(0)}pt (aspect preserved: ${(finalWidthPt / finalHeightPt).toFixed(3)} vs ${imageAspectRatio.toFixed(3)})`,
+    )
 
     // Double-check: ensure final dimensions are positive and within bounds
     if (finalWidthPt <= 0 || finalHeightPt <= 0) {
@@ -1077,67 +989,18 @@ const renderImageContainerToPDF = async (
     }
 
     // Verify dimensions fit within available space (strict check)
+    // This should never trigger because we already calculated to fit, but just in case
     if (finalWidthPt > availableWidth || finalHeightPt > availableHeight) {
         console.warn(
             `Image too large, reducing. Requested: ${finalWidthPt}x${finalHeightPt}, Available: ${availableWidth}x${availableHeight}`,
         )
-        // Force fit within available space
+        // Force fit within available space while preserving aspect ratio
         const scale = Math.min(
             availableWidth / finalWidthPt,
             availableHeight / finalHeightPt,
         )
-        const adjustedWidth = Math.floor(finalWidthPt * scale)
-        const adjustedHeight = Math.floor(finalHeightPt * scale)
-
-        // Recalculate canvas with adjusted dimensions at high resolution
-        const adjustedWidthPx = Math.floor(
-            adjustedWidth * (96 / 72) * resolutionMultiplier,
-        )
-        const adjustedHeightPx = Math.floor(
-            adjustedHeight * (96 / 72) * resolutionMultiplier,
-        )
-        canvas.width = adjustedWidthPx
-        canvas.height = adjustedHeightPx
-
-        // Enable high-quality image rendering
-        ctx.imageSmoothingEnabled = true
-        ctx.imageSmoothingQuality = 'high'
-
-        // Redraw with adjusted size
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-        const adjustedImgAspectRatio = img.naturalWidth / img.naturalHeight
-        const adjustedCanvasAspectRatio = canvas.width / canvas.height
-
-        let drawWidth = canvas.width
-        let drawHeight = canvas.height
-        let drawX = 0
-        let drawY = 0
-
-        if (adjustedImgAspectRatio > adjustedCanvasAspectRatio) {
-            drawWidth = canvas.width
-            drawHeight = canvas.width / adjustedImgAspectRatio
-            drawY = (canvas.height - drawHeight) / 2
-        } else {
-            drawHeight = canvas.height
-            drawWidth = canvas.height * adjustedImgAspectRatio
-            drawX = (canvas.width - drawWidth) / 2
-        }
-
-        ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
-        const adjustedImgData = canvas.toDataURL('image/png') // Lossless PNG quality
-
-        // Add at top-left margin to ensure no overflow
-        pdf.addImage(
-            adjustedImgData,
-            'PNG',
-            margin,
-            margin,
-            adjustedWidth,
-            adjustedHeight,
-        )
-        return
+        finalWidthPt = finalWidthPt * scale
+        finalHeightPt = finalHeightPt * scale
     }
 
     // Calculate centered position
