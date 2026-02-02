@@ -953,11 +953,11 @@ const renderImageContainerToPDF = async (
         return
     }
 
-    // Calculate target size (75% of page height for maximum quality) in PDF points
-    // Using 75% to maximize image detail while maintaining safety margin
-    const maxImageHeightPt = contentHeight * 0.75
-    // Width should also be constrained to 75% to maintain proportions
-    const maxImageWidthPt = contentWidth * 0.75
+    // Calculate target size (90% of page for full quality) in PDF points
+    // Using 90% to maximize image detail while leaving minimal margin
+    const maxImageHeightPt = contentHeight * 0.9
+    // Width should also be constrained to 90% to maintain proportions
+    const maxImageWidthPt = contentWidth * 0.9
 
     // Use natural image dimensions to calculate scaling
     const imageAspectRatio = img.naturalWidth / img.naturalHeight
@@ -1001,16 +1001,30 @@ const renderImageContainerToPDF = async (
     const safeTargetWidthPt = Math.min(targetWidthPt, availableWidth)
     const safeTargetHeightPt = Math.min(targetHeightPt, availableHeight)
 
-    // Set canvas size at HIGH RESOLUTION for best possible image quality
-    // Use 3x resolution multiplier: 1pt = 3 * (96/72) px = 4px
-    // This gives us maximum image quality when rendered to PDF
-    const resolutionMultiplier = 3 // 3x resolution for maximum sharpness
-    const targetWidthPx = Math.floor(
+    // Set canvas size at MAXIMUM RESOLUTION for best possible image quality
+    // Use the larger of: 4x resolution multiplier OR the image's native dimensions
+    // This preserves full quality for high-resolution images
+    const resolutionMultiplier = 4 // 4x resolution for maximum sharpness
+    const scaledWidthPx = Math.floor(
         safeTargetWidthPt * (96 / 72) * resolutionMultiplier,
     )
-    const targetHeightPx = Math.floor(
+    const scaledHeightPx = Math.floor(
         safeTargetHeightPt * (96 / 72) * resolutionMultiplier,
     )
+
+    // Use the image's native dimensions if they're higher quality
+    // This preserves full quality for high-resolution source images
+    const useNativeDimensions =
+        img.naturalWidth > scaledWidthPx || img.naturalHeight > scaledHeightPx
+    const targetWidthPx = useNativeDimensions ? img.naturalWidth : scaledWidthPx
+    const targetHeightPx = useNativeDimensions
+        ? img.naturalHeight
+        : scaledHeightPx
+
+    console.log(
+        `Image quality: Using ${useNativeDimensions ? 'native' : 'scaled'} dimensions: ${targetWidthPx}x${targetHeightPx}px (native: ${img.naturalWidth}x${img.naturalHeight}px)`,
+    )
+
     canvas.width = targetWidthPx
     canvas.height = targetHeightPx
 
@@ -1051,24 +1065,10 @@ const renderImageContainerToPDF = async (
     // Use PNG for lossless quality (no compression artifacts)
     const imgData = canvas.toDataURL('image/png') // Lossless PNG quality
 
-    // Final dimensions: scale down from high-res canvas to PDF points
-    // Canvas was created with: targetWidthPx = safeTargetWidthPt * (96/72) * resolutionMultiplier
-    // So: safeTargetWidthPt = targetWidthPx * (72/96) / resolutionMultiplier
-    const canvasWidthPt = (canvas.width * 72) / (96 * resolutionMultiplier)
-    const canvasHeightPt = (canvas.height * 72) / (96 * resolutionMultiplier)
-
-    // Double-check: ensure final dimensions don't exceed available space
-    const finalWidthPt = Math.floor(
-        Math.min(canvasWidthPt, availableWidth, maxImageWidthPt, contentWidth),
-    )
-    const finalHeightPt = Math.floor(
-        Math.min(
-            canvasHeightPt,
-            availableHeight,
-            maxImageHeightPt,
-            contentHeight,
-        ),
-    )
+    // Final dimensions: use the safe target dimensions which preserve aspect ratio
+    // These were calculated to fit within the available page space
+    const finalWidthPt = safeTargetWidthPt
+    const finalHeightPt = safeTargetHeightPt
 
     // Double-check: ensure final dimensions are positive and within bounds
     if (finalWidthPt <= 0 || finalHeightPt <= 0) {
