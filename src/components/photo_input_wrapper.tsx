@@ -59,9 +59,10 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                 photoProperties.MAX_IMAGE_DIM_HEIGHT,
                 photoProperties.MAX_IMAGE_DIM_WIDTH,
             ),
-            quality: 0.95,
+            quality: 0.98, // Increased to 0.98 for maximum quality
             fileType: 'image/jpeg',
             alwaysKeepResolution: true, // Preserve original resolution when possible
+            preserveExif: true, // Preserve EXIF data including GPS coordinates
         }
         const compressedFile = await imageCompression(
             imageBlob as File,

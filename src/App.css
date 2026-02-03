@@ -123,7 +123,9 @@ h1 + h3 {
 
 .img-thumbnail {
     object-fit: contain;
-    max-height: 500px;
+    max-height: none; /* Allow full resolution display */
+    max-width: 100%;
+    height: auto;
 }
 
 /* jobs_view.tsx & collapsible.tsx */
@@ -233,11 +235,11 @@ h6 {
     margin-bottom: 1.5rem;
 }
 
-/* Ensure images within photo-report-container don't overflow */
+/* Ensure images within photo-report-container display at full resolution */
 .photo-report-container img,
 .photo-report-container .img-thumbnail {
     max-width: 100% !important;
-    max-height: 100% !important;
+    max-height: none !important; /* Allow full resolution display */
     width: auto !important;
     height: auto !important;
     object-fit: contain !important;
@@ -446,7 +448,7 @@ btn-light:hover {
     position: relative;
     width: 100%;
     height: auto;
-    max-height: 600px;
+    max-height: none; /* Allow full resolution display */
     overflow: visible;
     margin-bottom: 5px;
 }
@@ -460,7 +462,7 @@ btn-light:hover {
     max-height: none;
     break-inside: avoid;
     page-break-inside: avoid;
-    overflow: hidden;
+    overflow: visible; /* Allow full image display without clipping */
     margin-bottom: 20px;
     padding-bottom: 10px;
     box-sizing: border-box;
@@ -619,11 +621,11 @@ select {
     max-width: 100% !important; /* Ensure it doesn't exceed container */
 }
 
-/* Ensure photo-report-container images are constrained within card body */
+/* Ensure photo-report-container images display at full resolution */
 .photo-report-container .img-thumbnail,
 .photo-report-container img {
     max-width: 100% !important;
-    max-height: 400px !important;
+    max-height: none !important; /* Allow full resolution display */
     width: auto !important;
     height: auto !important;
     object-fit: contain !important;

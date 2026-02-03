@@ -306,6 +306,164 @@ const addHyperlinksToPDF = async (
 }
 
 /**
+ * Adds hyperlinks to PDF using pre-calculated position info from text rendering
+ * This provides accurate link placement because positions are captured during rendering
+ */
+const addHyperlinksFromRenderInfo = async (
+    pdfBlob: Blob,
+    hyperlinkInfos: TextRenderHyperlinkInfo[],
+): Promise<Blob> => {
+    if (hyperlinkInfos.length === 0) {
+        console.log('No hyperlinks to add')
+        return pdfBlob
+    }
+
+    try {
+        const pdfBytes = await pdfBlob.arrayBuffer()
+        const pdfDoc = await PDFDocument.load(pdfBytes)
+        const pages = pdfDoc.getPages()
+
+        console.log(
+            `Adding ${hyperlinkInfos.length} hyperlinks to PDF with ${pages.length} pages`,
+        )
+
+        let linksAdded = 0
+        let linksSkipped = 0
+
+        for (const linkInfo of hyperlinkInfos) {
+            const { url, text, pdfX, pdfY, pdfWidth, pdfHeight, pageIndex } =
+                linkInfo
+
+            // Check if page exists
+            if (pageIndex < 0 || pageIndex >= pages.length) {
+                console.warn(
+                    `Hyperlink "${text}" targets page ${pageIndex + 1} but PDF only has ${pages.length} pages, skipping`,
+                )
+                linksSkipped++
+                continue
+            }
+
+            const page = pages[pageIndex]
+            const pageSize = page.getSize()
+            const margin = 15
+
+            // Validate and format URL
+            let finalUrl = url.trim()
+            if (
+                !finalUrl.startsWith('http://') &&
+                !finalUrl.startsWith('https://')
+            ) {
+                if (
+                    finalUrl.startsWith('/') ||
+                    finalUrl.startsWith('#') ||
+                    finalUrl.startsWith('mailto:') ||
+                    finalUrl.startsWith('tel:')
+                ) {
+                    // Keep mailto and tel links, skip relative paths
+                    if (
+                        !finalUrl.startsWith('mailto:') &&
+                        !finalUrl.startsWith('tel:')
+                    ) {
+                        console.warn(`Skipping relative URL: ${finalUrl}`)
+                        linksSkipped++
+                        continue
+                    }
+                } else {
+                    finalUrl = `https://${finalUrl}`
+                }
+            }
+
+            // Clamp coordinates to page bounds
+            const clampedX = Math.max(
+                margin,
+                Math.min(pdfX, pageSize.width - margin - pdfWidth),
+            )
+            const clampedY = Math.max(
+                margin,
+                Math.min(pdfY, pageSize.height - margin - pdfHeight),
+            )
+
+            try {
+                // Create link annotation
+                const linkAnnotationDict = pdfDoc.context.obj({
+                    Type: PDFName.of('Annot'),
+                    Subtype: PDFName.of('Link'),
+                    Rect: [
+                        clampedX,
+                        clampedY,
+                        clampedX + pdfWidth,
+                        clampedY + pdfHeight,
+                    ],
+                    Border: [0, 0, 0],
+                    A: pdfDoc.context.obj({
+                        Type: PDFName.of('Action'),
+                        S: PDFName.of('URI'),
+                        URI: PDFString.of(finalUrl),
+                    }),
+                    F: 4, // Print flag
+                    H: PDFName.of('I'), // Invert highlight on hover
+                })
+
+                const linkAnnotation =
+                    pdfDoc.context.register(linkAnnotationDict)
+
+                // Get or create annotations array for this page
+                const pageDict = page.node
+                let existingAnnots = pageDict.get(PDFName.of('Annots'))
+
+                const annotsToAdd: any[] = []
+                if (existingAnnots) {
+                    try {
+                        const existingAnnotsRef = existingAnnots as any
+                        if (existingAnnotsRef && existingAnnotsRef.array) {
+                            const existingArray = existingAnnotsRef.array()
+                            if (Array.isArray(existingArray)) {
+                                annotsToAdd.push(...existingArray)
+                            } else {
+                                annotsToAdd.push(existingAnnotsRef)
+                            }
+                        } else {
+                            annotsToAdd.push(existingAnnotsRef)
+                        }
+                    } catch (e) {
+                        console.warn('Could not parse existing annotations:', e)
+                    }
+                }
+                annotsToAdd.push(linkAnnotation)
+
+                const annotsArray = pdfDoc.context.register(
+                    pdfDoc.context.obj(annotsToAdd),
+                )
+                pageDict.set(PDFName.of('Annots'), annotsArray)
+
+                console.log(
+                    `✓ Added hyperlink "${text}" to page ${pageIndex + 1} at (${clampedX.toFixed(0)}, ${clampedY.toFixed(0)}) -> ${finalUrl}`,
+                )
+                linksAdded++
+            } catch (linkError) {
+                console.error(`Error adding hyperlink "${text}":`, linkError)
+                linksSkipped++
+            }
+        }
+
+        console.log(
+            `Hyperlinks complete: ${linksAdded} added, ${linksSkipped} skipped`,
+        )
+
+        const modifiedPdfBytes = await pdfDoc.save()
+        // Convert Uint8Array to ArrayBuffer for Blob compatibility
+        const buffer = modifiedPdfBytes.buffer.slice(
+            modifiedPdfBytes.byteOffset,
+            modifiedPdfBytes.byteOffset + modifiedPdfBytes.byteLength,
+        )
+        return new Blob([buffer], { type: 'application/pdf' })
+    } catch (error) {
+        console.error('Error adding hyperlinks to PDF:', error)
+        return pdfBlob
+    }
+}
+
+/**
  * Removes blank pages from a PDF blob using pdf-lib
  */
 const removeBlankPagesFromPDF = async (pdfBlob: Blob): Promise<Blob> => {
@@ -680,13 +838,22 @@ const generatePDFFromHTML = async (
 }
 
 /**
+ * Result from PDF generation including hyperlink info
+ */
+interface PDFGenerationResult {
+    blob: Blob
+    hyperlinkInfos: TextRenderHyperlinkInfo[]
+}
+
+/**
  * Generates PDF with special handling for images to prevent splitting
  * Each image container gets its own page, scaled to 85% of page size
  * Processes content sequentially to maintain order
+ * Returns both the PDF blob and hyperlink info for adding clickable links
  */
 const generatePDFWithImageHandling = async (
     container: HTMLElement,
-): Promise<Blob> => {
+): Promise<PDFGenerationResult> => {
     const pdf = new jsPDF({
         unit: 'pt',
         format: 'a4',
@@ -701,6 +868,11 @@ const generatePDFWithImageHandling = async (
     const sectionPadding = 20
     const contentWidth = pdfWidth - margin * 2
     const contentHeight = pdfHeight - margin * 2 - sectionPadding
+
+    // Collect all hyperlink info from text rendering
+    const allHyperlinkInfos: TextRenderHyperlinkInfo[] = []
+    // Track the current page offset for hyperlink page calculation
+    let currentPageCount = 0
 
     // Find all photo-report-container elements (these contain images)
     const photoContainers = Array.from(
@@ -720,16 +892,25 @@ const generatePDFWithImageHandling = async (
             // First, render any accumulated text content BEFORE processing images
             // Add extra padding after text to ensure separation
             if (currentTextElements.length > 0) {
-                await renderTextContentToPDF(
+                const textHyperlinks = await renderTextContentToPDF(
                     pdf,
                     currentTextElements,
                     contentWidth,
                     contentHeight,
                     margin,
                 )
+                // Adjust page indices based on current page count
+                textHyperlinks.forEach(link => {
+                    allHyperlinkInfos.push({
+                        ...link,
+                        pageIndex: link.pageIndex + currentPageCount,
+                    })
+                })
+                currentPageCount = pdf.getNumberOfPages()
                 currentTextElements = []
                 // Add a blank page after text to ensure clear separation before images
                 pdf.addPage()
+                currentPageCount++
             }
 
             // Extract text content from this child (like Card.Title, Card.Text)
@@ -748,15 +929,24 @@ const generatePDFWithImageHandling = async (
 
             // Render text content FIRST (if any) - this ensures text is on separate pages
             if (textElements.length > 0) {
-                await renderTextContentToPDF(
+                const textHyperlinks = await renderTextContentToPDF(
                     pdf,
                     textElements,
                     contentWidth,
                     contentHeight,
                     margin,
                 )
+                // Adjust page indices based on current page count
+                textHyperlinks.forEach(link => {
+                    allHyperlinkInfos.push({
+                        ...link,
+                        pageIndex: link.pageIndex + currentPageCount,
+                    })
+                })
+                currentPageCount = pdf.getNumberOfPages()
                 // Add a blank page after text to ensure clear separation before images
                 pdf.addPage()
+                currentPageCount++
             }
 
             // NOW render each photo container on its own SEPARATE page
@@ -774,8 +964,10 @@ const generatePDFWithImageHandling = async (
                     contentHeight,
                     margin,
                 )
+                currentPageCount = pdf.getNumberOfPages()
                 // Add a blank page after each image to ensure clear separation
                 pdf.addPage()
+                currentPageCount++
             }
         } else {
             // Accumulate text content
@@ -785,20 +977,47 @@ const generatePDFWithImageHandling = async (
 
     // Render any remaining text content
     if (currentTextElements.length > 0) {
-        await renderTextContentToPDF(
+        const textHyperlinks = await renderTextContentToPDF(
             pdf,
             currentTextElements,
             contentWidth,
             contentHeight,
             margin,
         )
+        // Adjust page indices based on current page count
+        textHyperlinks.forEach(link => {
+            allHyperlinkInfos.push({
+                ...link,
+                pageIndex: link.pageIndex + currentPageCount,
+            })
+        })
     }
 
-    return pdf.output('blob')
+    console.log(
+        `PDF generation complete. Collected ${allHyperlinkInfos.length} hyperlinks across ${pdf.getNumberOfPages()} pages`,
+    )
+
+    return {
+        blob: pdf.output('blob'),
+        hyperlinkInfos: allHyperlinkInfos,
+    }
 }
 
 /**
- * Renders text content to PDF with pagination
+ * Info about hyperlinks found during text rendering
+ */
+interface TextRenderHyperlinkInfo {
+    url: string
+    text: string
+    pdfX: number
+    pdfY: number
+    pdfWidth: number
+    pdfHeight: number
+    pageIndex: number
+}
+
+/**
+ * Renders text content to PDF with pagination and returns hyperlink info
  */
 const renderTextContentToPDF = async (
     pdf: jsPDF,
@@ -806,7 +1025,9 @@ const renderTextContentToPDF = async (
     contentWidth: number,
     contentHeight: number,
     margin: number,
-): Promise<void> => {
+): Promise<TextRenderHyperlinkInfo[]> => {
+    const hyperlinkInfos: TextRenderHyperlinkInfo[] = []
+
     // Create temporary container for text elements
     const textContainer = document.createElement('div')
     textContainer.style.width = `${contentWidth}px`
@@ -831,6 +1052,11 @@ const renderTextContentToPDF = async (
     })
 
     try {
+        // IMPORTANT: Extract hyperlinks from the text container BEFORE html2canvas
+        // This ensures we capture positions relative to this specific rendered text
+        const containerRect = textContainer.getBoundingClientRect()
+        const allLinks = textContainer.querySelectorAll('a[href]')
+
         const canvas = await html2canvas(textContainer, {
             scale: 2.0, // Increased from 1.5 to 2.0 for better quality
             useCORS: true,
@@ -842,8 +1068,67 @@ const renderTextContentToPDF = async (
         })
 
         const imgData = canvas.toDataURL('image/png') // Use PNG for better quality
-        const ratio = contentWidth / canvas.width
-        const scaledHeight = canvas.height * ratio
+        // Scale factor: html2canvas uses scale=2.0, so canvas dimensions are 2x the DOM dimensions
+        const html2canvasScale = 2.0
+        // Calculate how much we scale from canvas to PDF
+        const canvasToPdfScale = contentWidth / canvas.width
+
+        // Combined scale: DOM pixels -> PDF points
+        // DOM position * html2canvasScale = canvas position
+        // canvas position * canvasToPdfScale = PDF position
+        const domToPdfScale = html2canvasScale * canvasToPdfScale
+
+        const scaledHeight = canvas.height * canvasToPdfScale
+
+        // Calculate which page each hyperlink ends up on and its PDF coordinates
+        const pdfHeight = pdf.internal.pageSize.getHeight()
+        const pdfWidth = pdf.internal.pageSize.getWidth()
+
+        allLinks.forEach(link => {
+            const href = link.getAttribute('href')
+            if (!href) return
+
+            const linkRect = link.getBoundingClientRect()
+            if (linkRect.width === 0 || linkRect.height === 0) return
+
+            // Position relative to the text container (in DOM pixels)
+            const relativeTop = linkRect.top - containerRect.top
+            const relativeLeft = linkRect.left - containerRect.left
+
+            // Convert to PDF coordinates
+            // Note: In PDF, content is added at margin + position, where position starts at margin
+            const pdfLinkY = margin + relativeTop * domToPdfScale
+            const pdfLinkX = margin + relativeLeft * domToPdfScale
+            const pdfLinkWidth = Math.max(50, linkRect.width * domToPdfScale) // Min 50pt for clickability
+            const pdfLinkHeight = Math.max(15, linkRect.height * domToPdfScale) // Min 15pt
+
+            // Calculate which page this link is on
+            // Content is placed at position=margin on first page
+            // For subsequent pages, position -= contentHeight
+            const yPositionInContent = relativeTop * domToPdfScale
+            const pageIndex = Math.floor(yPositionInContent / contentHeight)
+
+            // Y position within the page (PDF coordinates: 0,0 is bottom-left)
+            const yOnPage = yPositionInContent - pageIndex * contentHeight
+            // Convert from top-origin to bottom-origin
+            const pdfY = pdfHeight - margin - yOnPage - pdfLinkHeight
+
+            console.log(
+                `Hyperlink "${link.textContent?.trim()}" -> page ${pageIndex + 1}, ` +
+                    `DOM pos: (${relativeLeft.toFixed(0)}, ${relativeTop.toFixed(0)}), ` +
+                    `PDF pos: (${pdfLinkX.toFixed(0)}, ${pdfY.toFixed(0)})`,
+            )
+
+            hyperlinkInfos.push({
+                url: href,
+                text: link.textContent?.trim() || href,
+                pdfX: pdfLinkX,
+                pdfY: pdfY,
+                pdfWidth: pdfLinkWidth,
+                pdfHeight: pdfLinkHeight,
+                pageIndex: pageIndex,
+            })
+        })
 
         // Add to PDF with pagination
         let heightLeft = scaledHeight
@@ -863,7 +1148,7 @@ const renderTextContentToPDF = async (
             pdf.addPage()
             pdf.addImage(
                 imgData,
-                'JPEG',
+                'PNG', // Use PNG for maximum quality (was JPEG)
                 margin,
                 position,
                 contentWidth,
@@ -871,6 +1156,8 @@ const renderTextContentToPDF = async (
             )
             heightLeft -= contentHeight
         }
+
+        return hyperlinkInfos
     } finally {
         if (textContainer.parentNode) {
             document.body.removeChild(textContainer)
@@ -1812,16 +2099,15 @@ const PrintSection: FC<PrintSectionProps> = ({
             // preprocess images for better PDF quality (after they're loaded)
             await preprocessImagesForPDF(wrapper as HTMLElement)
 
-            // Extract all hyperlinks before PDF generation
-            const hyperlinks = extractAllHyperlinks(wrapper as HTMLElement)
-            console.log(`Found ${hyperlinks.length} hyperlinks to add to PDF`)
-
             // Check if content is too large and needs chunking
             const contentHeight = wrapper.scrollHeight
             const contentWidth = wrapper.scrollWidth || 800 // Default to 800 if not available
-            const maxSingleChunkHeight = 3000 // Height threshold for chunking
+            // Use a very high threshold to always use generatePDFWithImageHandling
+            // which has proper image aspect ratio handling
+            const maxSingleChunkHeight = 50000 // Very high threshold to avoid chunking
 
             let finalPdfBlob: Blob
+            let collectedHyperlinks: TextRenderHyperlinkInfo[] = []
 
             if (contentHeight > maxSingleChunkHeight) {
                 console.log(
@@ -1975,20 +2261,21 @@ const PrintSection: FC<PrintSectionProps> = ({
                 )
 
                 // Use new direct html2canvas + jsPDF approach with image handling
-                finalPdfBlob = await generatePDFWithImageHandling(
+                // This returns both the PDF blob and hyperlink position info
+                const pdfResult = await generatePDFWithImageHandling(
                     wrapper as HTMLElement,
                 )
+                finalPdfBlob = pdfResult.blob
+                collectedHyperlinks = pdfResult.hyperlinkInfos
             }
 
             // Remove blank pages from the end of the PDF
             const cleanedPdfBlob = await removeBlankPagesFromPDF(finalPdfBlob)
 
-            // Add clickable hyperlinks to the PDF
-            const pdfWithLinks = await addHyperlinksToPDF(
+            // Add clickable hyperlinks to the PDF using accurate position info from rendering
+            const pdfWithLinks = await addHyperlinksFromRenderInfo(
                 cleanedPdfBlob,
-                hyperlinks,
-                contentHeight,
-                contentWidth,
+                collectedHyperlinks,
             )
 
             // create document ID in vapor-core, upload to S3
