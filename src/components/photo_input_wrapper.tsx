@@ -1,10 +1,12 @@
 import React, { FC, useEffect, useState } from 'react'
+import { useParams } from 'react-router-dom'
 
 import imageCompression from 'browser-image-compression'
 
 import { StoreContext } from './store'
 import PhotoInput from './photo_input'
 import PhotoMetadata from '../types/photo_metadata.type'
+import templatesConfig from '../templates/templates_config'
 
 import { getMetadataFromPhoto, photoProperties } from '../utilities/photo_utils'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
@@ -37,6 +39,13 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
 }) => {
     const [loading, setLoading] = useState(false) // Loading state
     const [error, setError] = useState('') // Loading state
+
+    // Get measure name from URL params (same as PrintSectionWrapper)
+    const { workflowName } = useParams<{ workflowName: string }>()
+    const measureNameFromConfig =
+        templatesConfig[workflowName!]?.title ||
+        workflowName ||
+        'quality-install'
 
     /**
      * Compresses an image file (Blob) while maintaining its aspect ratio and ensuring it does not exceed specified size limits.
@@ -179,11 +188,8 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                         const applicationId =
                             localStorage.getItem('application_id')
 
-                        // Get measure name from metadata, with photo field ID as subfolder
-                        const docName =
-                            (metadata as any)?.doc_name || 'quality-install'
-                        // Include the photo field ID in the path for better organization
-                        const measureName = `${docName}/${id}`
+                        // Use measure name from URL params/templates config (same as PrintSectionWrapper)
+                        const measureName = measureNameFromConfig
 
                         let documentId: string | undefined
 
