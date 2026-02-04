@@ -42,10 +42,19 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
 
     // Get measure name from URL params (same as PrintSectionWrapper)
     const { workflowName } = useParams<{ workflowName: string }>()
-    const measureNameFromConfig =
-        templatesConfig[workflowName!]?.title ||
-        workflowName ||
-        'quality-install'
+
+    // Try to get the title from templates config first
+    // This will give us human-readable names like "Electric Load Service Center"
+    const getConfiguredMeasureName = () => {
+        // First try exact match with workflowName
+        if (workflowName && templatesConfig[workflowName]?.title) {
+            return templatesConfig[workflowName].title
+        }
+        // Return null to indicate no config match
+        return null
+    }
+
+    const configuredMeasureName = getConfiguredMeasureName()
 
     /**
      * Compresses an image file (Blob) while maintaining its aspect ratio and ensuring it does not exceed specified size limits.
@@ -188,8 +197,14 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                         const applicationId =
                             localStorage.getItem('application_id')
 
-                        // Use measure name from URL params/templates config (same as PrintSectionWrapper)
-                        const measureName = measureNameFromConfig
+                        // Use measure name from templates config (preferred) or metadata.doc_name as fallback
+                        // This ensures we get proper names like "Electric Load Service Center"
+                        // instead of URL slugs or short names
+                        const measureName =
+                            configuredMeasureName ||
+                            (metadata as any)?.doc_name ||
+                            workflowName ||
+                            'quality-install'
 
                         let documentId: string | undefined
 
