@@ -493,7 +493,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
 
         // Persist the blob with proper revision handling
         const upsertBlobDB = async (
-            maxRetries = 3,
+            maxRetries = 5,
         ): Promise<PouchDB.Core.Response | null> => {
             if (!db) {
                 console.warn('Database not available')
@@ -502,21 +502,18 @@ export const StoreProvider: FC<StoreProviderProps> = ({
 
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
-                    // Get the latest document revision
-                    let currentRev = revisionRef.current
-
-                    if (!currentRev) {
-                        // If no revision available, try to get the document first
-                        try {
-                            const doc = await db.get(docId)
-                            currentRev = doc._rev
-                            revisionRef.current = currentRev
-                        } catch (err: any) {
-                            if (err.name !== 'not_found') {
-                                throw err
-                            }
-                            // Document doesn't exist, currentRev stays undefined
+                    // Always fetch the latest revision to avoid conflicts
+                    // This is necessary because upsertMetadata may have updated the doc
+                    let currentRev: string | undefined
+                    try {
+                        const latestDoc = await db.get(docId)
+                        currentRev = latestDoc._rev
+                        revisionRef.current = currentRev
+                    } catch (err: any) {
+                        if (err.name !== 'not_found') {
+                            throw err
                         }
+                        // Document doesn't exist, currentRev stays undefined
                     }
 
                     // Handle undefined revision for new documents
@@ -546,22 +543,14 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                     console.error(`Attempt ${attempt + 1} failed:`, err)
 
                     if (err.name === 'conflict' && attempt < maxRetries - 1) {
-                        // Get the latest revision and try again
-                        try {
-                            const doc = await db.get(docId)
-                            revisionRef.current = doc._rev
-                            console.log(
-                                `Retrying with updated revision: ${doc._rev}`,
-                            )
-                        } catch (getErr: any) {
-                            if (getErr.name === 'not_found') {
-                                // Document was deleted, reset revision
-                                revisionRef.current = undefined
-                            } else {
-                                throw getErr
-                            }
-                        }
-                        // Continue to next iteration
+                        // Wait a short time before retrying to let other operations complete
+                        await new Promise(resolve =>
+                            setTimeout(resolve, 100 * (attempt + 1)),
+                        )
+                        console.log(
+                            `Conflict detected, retrying (attempt ${attempt + 2}/${maxRetries})...`,
+                        )
+                        // Continue to next iteration - will fetch fresh revision
                         continue
                     } else {
                         console.error('Failed to save attachment:', err)
