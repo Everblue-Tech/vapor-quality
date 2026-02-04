@@ -179,9 +179,11 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                         const applicationId =
                             localStorage.getItem('application_id')
 
-                        // Get measure name from metadata or use a default
-                        const measureName =
+                        // Get measure name from metadata, with photo field ID as subfolder
+                        const docName =
                             (metadata as any)?.doc_name || 'quality-install'
+                        // Include the photo field ID in the path for better organization
+                        const measureName = `${docName}/${id}`
 
                         let documentId: string | undefined
 
