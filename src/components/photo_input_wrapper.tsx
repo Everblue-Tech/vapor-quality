@@ -7,6 +7,7 @@ import PhotoInput from './photo_input'
 import PhotoMetadata from '../types/photo_metadata.type'
 
 import { getMetadataFromPhoto, photoProperties } from '../utilities/photo_utils'
+import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
 
 interface PhotoInputWrapperProps {
     children: React.ReactNode
@@ -167,13 +168,65 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                     )
 
                     const handleImageUpsert = async (file: Blob) => {
+                        // Get photo metadata (geolocation, timestamp)
                         const photoMetadata =
                             await getMetadataFromPhoto(imgFile)
+
+                        // Get required IDs from localStorage
+                        const userId = localStorage.getItem('user_id')
+                        const organizationId =
+                            localStorage.getItem('organization_id')
+                        const applicationId =
+                            localStorage.getItem('application_id')
+
+                        // Get measure name from metadata or use a default
+                        const measureName =
+                            (metadata as any)?.doc_name || 'quality-install'
+
+                        let documentId: string | undefined
+
+                        // Upload to S3 immediately if we have the required IDs
+                        if (userId && applicationId) {
+                            try {
+                                documentId =
+                                    await uploadImageToS3AndCreateDocument({
+                                        file,
+                                        userId,
+                                        organizationId,
+                                        applicationId,
+                                        documentType: 'Quality Install Photo',
+                                        measureName,
+                                    })
+                                console.log(
+                                    `Photo uploaded to S3 with documentId: ${documentId}`,
+                                )
+                            } catch (uploadError) {
+                                console.error(
+                                    'Failed to upload photo to S3:',
+                                    uploadError,
+                                )
+                                // Continue with local storage even if S3 upload fails
+                                // The save button will retry the upload later
+                            }
+                        } else {
+                            console.warn(
+                                'Missing userId or applicationId, skipping S3 upload',
+                            )
+                        }
+
+                        // Include documentId in metadata if upload succeeded
+                        const enrichedMetadata = {
+                            ...photoMetadata,
+                            ...(documentId && { documentId }),
+                            timestamp: new Date().toISOString(),
+                        }
+
+                        // Store locally with enriched metadata
                         upsertAttachment(
                             file,
                             nextKey,
                             undefined,
-                            photoMetadata,
+                            enrichedMetadata,
                         )
                         setError('')
                     }
