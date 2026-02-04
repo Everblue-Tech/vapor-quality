@@ -1,12 +1,10 @@
-import React, { FC, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import React, { FC, useState } from 'react'
 
 import imageCompression from 'browser-image-compression'
 
 import { StoreContext } from './store'
 import PhotoInput from './photo_input'
 import PhotoMetadata from '../types/photo_metadata.type'
-import templatesConfig from '../templates/templates_config'
 
 import { getMetadataFromPhoto, photoProperties } from '../utilities/photo_utils'
 import { uploadImageToS3AndCreateDocument } from '../utilities/s3_utils'
@@ -39,22 +37,6 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
 }) => {
     const [loading, setLoading] = useState(false) // Loading state
     const [error, setError] = useState('') // Loading state
-
-    // Get measure name from URL params (same as PrintSectionWrapper)
-    const { workflowName } = useParams<{ workflowName: string }>()
-
-    // Try to get the title from templates config first
-    // This will give us human-readable names like "Electric Load Service Center"
-    const getConfiguredMeasureName = () => {
-        // First try exact match with workflowName
-        if (workflowName && templatesConfig[workflowName]?.title) {
-            return templatesConfig[workflowName].title
-        }
-        // Return null to indicate no config match
-        return null
-    }
-
-    const configuredMeasureName = getConfiguredMeasureName()
 
     /**
      * Compresses an image file (Blob) while maintaining its aspect ratio and ensuring it does not exceed specified size limits.
@@ -130,6 +112,7 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
             {({
                 metadata,
                 attachments,
+                templateTitle,
                 upsertAttachment,
                 deleteAttachment,
             }) => {
@@ -197,13 +180,12 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                         const applicationId =
                             localStorage.getItem('application_id')
 
-                        // Use measure name from templates config (preferred) or metadata.doc_name as fallback
+                        // Use template title from context (preferred) or metadata.doc_name as fallback
                         // This ensures we get proper names like "Electric Load Service Center"
                         // instead of URL slugs or short names
                         const measureName =
-                            configuredMeasureName ||
+                            templateTitle ||
                             (metadata as any)?.doc_name ||
-                            workflowName ||
                             'quality-install'
 
                         let documentId: string | undefined

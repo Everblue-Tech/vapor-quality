@@ -57,6 +57,7 @@ export const StoreContext = React.createContext({
     attachments: {} satisfies Attachments,
     data: {} satisfies JSONValue,
     metadata: {} satisfies Metadata | Record<string, string>,
+    templateTitle: '' satisfies string,
     upsertAttachment: ((
         blob: Blob,
         id: any,
@@ -75,6 +76,7 @@ interface StoreProviderProps {
     docName: string
     type: string
     parentId?: string | undefined
+    templateTitle?: string
 }
 
 const REACT_APP_VAPORCORE_URL = getConfig('REACT_APP_VAPORCORE_URL')
@@ -94,6 +96,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
     docName,
     type,
     parentId,
+    templateTitle = '',
 }) => {
     const changesRef = useRef<PouchDB.Core.Changes<{}>>()
     const revisionRef = useRef<string>()
@@ -608,6 +611,7 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                 docId: docId,
                 data: doc.data_,
                 metadata: doc.metadata_,
+                templateTitle,
                 upsertAttachment,
                 deleteAttachment,
                 upsertData,
