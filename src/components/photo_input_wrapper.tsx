@@ -188,6 +188,21 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                             (metadata as any)?.doc_name ||
                             'quality-install'
 
+                        // DEBUG: Log all relevant values for troubleshooting
+                        console.log(
+                            '[PhotoInputWrapper] S3 Upload Debug Info:',
+                            {
+                                templateTitle,
+                                'metadata?.doc_name': (metadata as any)
+                                    ?.doc_name,
+                                measureName,
+                                userId,
+                                organizationId,
+                                applicationId,
+                                metadata: metadata,
+                            },
+                        )
+
                         let documentId: string | undefined
 
                         // Upload to S3 immediately if we have the required IDs

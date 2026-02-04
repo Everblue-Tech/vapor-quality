@@ -23,6 +23,15 @@ const MdxTemplateView: FC = () => {
     const { jobId, projectId, workflowName } = useParams()
     const config = templatesConfig[workflowName as string]
 
+    // DEBUG: Log template config lookup
+    console.log('[MdxTemplateView] Template Config Debug:', {
+        workflowName,
+        config,
+        configTitle: config?.title,
+        templateTitleToPass: config?.title || '',
+        availableTemplateKeys: Object.keys(templatesConfig),
+    })
+
     const [project, setProject] = useState<any>({})
     const [projectSummary, setProjectSummary] = useState<any>({})
     const [installationInfo, setInstallationInfo] = useState<any>({})

@@ -79,6 +79,13 @@ export async function uploadImageToS3AndCreateDocument({
     // normalize & convert measure name to kebab-case
     const sanitizedMeasureName = measureName.toLowerCase().replace(/\s+/g, '-')
 
+    // DEBUG: Log measure name transformation
+    console.log('[s3_utils] Measure Name Debug:', {
+        originalMeasureName: measureName,
+        sanitizedMeasureName,
+        applicationId,
+    })
+
     const fileName = `${Date.now()}_${applicationId}`
 
     // detect file type and set appropriate extension and content type
@@ -156,6 +163,13 @@ export async function uploadImageToS3AndCreateDocument({
     }
 
     const s3Key = `quality-install/documents-by-application-id/${applicationId}/${sanitizedMeasureName}/${fileName}.${fileExtension}`
+
+    // DEBUG: Log final S3 path
+    console.log('[s3_utils] S3 Upload Path:', {
+        s3Key,
+        bucket: REACT_APP_AWS_S3_BUCKET,
+        fullPath: `s3://${REACT_APP_AWS_S3_BUCKET}/${s3Key}`,
+    })
 
     const putObjectCommand = new PutObjectCommand({
         Bucket: REACT_APP_AWS_S3_BUCKET,
