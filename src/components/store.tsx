@@ -488,10 +488,9 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                     timestamp: new Date(Date.now()).toISOString(),
                 }
 
-        // Storing SingleAttachmentMetaData in the DB
-        upsertMetadata('attachments.' + id, metadata)
-
         // Persist the blob with proper revision handling
+        // NOTE: We save the attachment FIRST, then update metadata AFTER
+        // This avoids race conditions that cause revision conflicts
         const upsertBlobDB = async (
             maxRetries = 5,
         ): Promise<PouchDB.Core.Response | null> => {
@@ -503,7 +502,6 @@ export const StoreProvider: FC<StoreProviderProps> = ({
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
                     // Always fetch the latest revision to avoid conflicts
-                    // This is necessary because upsertMetadata may have updated the doc
                     let currentRev: string | undefined
                     try {
                         const latestDoc = await db.get(docId)
@@ -585,6 +583,17 @@ export const StoreProvider: FC<StoreProviderProps> = ({
 
                 setAttachments(newAttachments)
                 console.log(`Successfully stored attachment: ${id}`)
+                console.log(`[store.tsx] Attachment metadata being stored:`, {
+                    id,
+                    hasGeolocation: !!metadata?.geolocation,
+                    geolocation: metadata?.geolocation,
+                    timestamp: metadata?.timestamp,
+                    fullMetadata: metadata,
+                })
+
+                // Now update the metadata AFTER the attachment is saved
+                // This avoids the race condition that was causing conflicts
+                upsertMetadata('attachments.' + id, metadata)
             }
         } catch (error) {
             console.error('Error persisting attachment:', error)

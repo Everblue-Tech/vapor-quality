@@ -52,6 +52,19 @@ const PhotoInput: FC<PhotoInputProps> = ({
     error,
     count,
 }) => {
+    // Debug: Log photo data on render
+    console.log(
+        `[PhotoInput] Rendering "${label}" with ${photos?.length || 0} photos`,
+    )
+    photos?.forEach((photoData, index) => {
+        console.log(`[PhotoInput] Photo ${index} metadata:`, {
+            id: photoData.id,
+            hasGeolocation: !!photoData.metadata?.geolocation,
+            geolocation: photoData.metadata?.geolocation,
+            timestamp: photoData.metadata?.timestamp,
+        })
+    })
+
     // Create references to the hidden file inputs
     const hiddenPhotoCaptureInputRef = useRef<HTMLInputElement>(null)
     const hiddenPhotoUploadInputRef = useRef<HTMLInputElement>(null)

@@ -36,6 +36,15 @@ const Photo: FC<PhotoProps> = ({ description, label, photos, required }) => {
         `[Photo] Rendering photo component "${label}" with ${photos?.length || 0} photos:`,
         photos,
     )
+    // Debug: Check geolocation data for each photo
+    photos?.forEach((photoData, index) => {
+        console.log(`[Photo] Photo ${index} metadata:`, {
+            hasGeolocation: !!photoData.metadata?.geolocation,
+            geolocation: photoData.metadata?.geolocation,
+            timestamp: photoData.metadata?.timestamp,
+            fullMetadata: photoData.metadata,
+        })
+    })
     return (photos && photos.length > 0) || required ? (
         <Card className="photo-card">
             <Card.Body>
