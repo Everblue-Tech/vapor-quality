@@ -180,26 +180,26 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                         const applicationId =
                             localStorage.getItem('application_id')
 
-                        // Use template title from context (preferred) or metadata.doc_name as fallback
-                        // This ensures we get proper names like "Electric Load Service Center"
-                        // instead of URL slugs or short names
+                        // Use template title from context ONLY
+                        // DO NOT use metadata.doc_name - it updates on every keystroke as user types,
+                        // causing race conditions where partial input like "k" gets captured
+                        // The templateTitle is stable (set from templates_config.ts)
                         const measureName =
-                            templateTitle ||
-                            (metadata as any)?.doc_name ||
-                            'quality-install'
+                            templateTitle && templateTitle.length >= 3
+                                ? templateTitle
+                                : 'quality-install'
 
                         // DEBUG: Log all relevant values for troubleshooting
                         console.log(
                             '[PhotoInputWrapper] S3 Upload Debug Info:',
                             {
                                 templateTitle,
-                                'metadata?.doc_name': (metadata as any)
-                                    ?.doc_name,
                                 measureName,
+                                'templateTitle valid':
+                                    templateTitle && templateTitle.length >= 3,
                                 userId,
                                 organizationId,
                                 applicationId,
-                                metadata: metadata,
                             },
                         )
 
@@ -216,6 +216,7 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                                         applicationId,
                                         documentType: 'Quality Install Photo',
                                         measureName,
+                                        geolocation: photoMetadata?.geolocation,
                                     })
                                 console.log(
                                     `Photo uploaded to S3 with documentId: ${documentId}`,

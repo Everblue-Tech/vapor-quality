@@ -47,6 +47,7 @@ export async function uploadImageToS3AndCreateDocument({
     applicationId,
     documentType,
     measureName,
+    geolocation,
 }: {
     file: File | Blob
     userId: string | null
@@ -54,6 +55,11 @@ export async function uploadImageToS3AndCreateDocument({
     applicationId: string | null
     documentType: string
     measureName: string
+    geolocation?: {
+        latitude: number | null
+        longitude: number | null
+        altitude?: number | null
+    } | null
 }) {
     if (!file) throw new Error('No file provided')
 
@@ -200,7 +206,12 @@ export async function uploadImageToS3AndCreateDocument({
                 application: {}, // application object needed for document API call to succeed
                 application_id: applicationId,
                 expiration_date: null,
-                comments: `Uploaded photo from QIT: ${fileName}`,
+                comments: JSON.stringify({
+                    source: 'QIT',
+                    fileName,
+                    geolocation: geolocation || null,
+                    uploadedAt: new Date().toISOString(),
+                }),
             }),
         },
     )
