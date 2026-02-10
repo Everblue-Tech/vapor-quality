@@ -80,6 +80,14 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                     )
                     const photoMetadata = await getMetadataFromPhoto(blob)
 
+                    // Extract photo label and index from attachmentId (e.g., "existing_ductwork_photo_0")
+                    const indexMatch = attachmentId.match(/_(\d+)$/)
+                    const photoIndex = indexMatch
+                        ? parseInt(indexMatch[1], 10)
+                        : 0
+                    // Remove the trailing _0, _1, etc. to get the base label
+                    const photoLabel = attachmentId.replace(/_\d+$/, '')
+
                     const documentId = await uploadImageToS3AndCreateDocument({
                         file: blob,
                         userId: localStorage.getItem('user_id'),
@@ -89,6 +97,8 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                         measureName:
                             projectDoc.metadata_?.doc_name || 'unknown',
                         geolocation: photoMetadata?.geolocation,
+                        photoLabel,
+                        photoIndex,
                     })
 
                     updatedMetadata.attachments[attachmentId] = {

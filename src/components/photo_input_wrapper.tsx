@@ -168,6 +168,12 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                         id,
                     )
 
+                    // Extract photo index from nextKey (e.g., "existing_ductwork_photo_0" -> 0)
+                    const photoIndexMatch = nextKey.match(/_(\d+)$/)
+                    const photoIndex = photoIndexMatch
+                        ? parseInt(photoIndexMatch[1], 10)
+                        : 0
+
                     const handleImageUpsert = async (file: Blob) => {
                         // Get photo metadata (geolocation, timestamp)
                         const photoMetadata =
@@ -200,6 +206,9 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                                 userId,
                                 organizationId,
                                 applicationId,
+                                photoLabel: id,
+                                photoIndex,
+                                nextKey,
                             },
                         )
 
@@ -217,6 +226,8 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                                         documentType: 'Quality Install Photo',
                                         measureName,
                                         geolocation: photoMetadata?.geolocation,
+                                        photoLabel: id,
+                                        photoIndex,
                                     })
                                 console.log(
                                     `Photo uploaded to S3 with documentId: ${documentId}`,

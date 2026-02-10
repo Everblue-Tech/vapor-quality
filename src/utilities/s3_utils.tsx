@@ -48,6 +48,8 @@ export async function uploadImageToS3AndCreateDocument({
     documentType,
     measureName,
     geolocation,
+    photoLabel,
+    photoIndex,
 }: {
     file: File | Blob
     userId: string | null
@@ -60,6 +62,8 @@ export async function uploadImageToS3AndCreateDocument({
         longitude: number | null
         altitude?: number | null
     } | null
+    photoLabel?: string // e.g., "existing_ductwork_photo"
+    photoIndex?: number // e.g., 0, 1, 2
 }) {
     if (!file) throw new Error('No file provided')
 
@@ -90,9 +94,23 @@ export async function uploadImageToS3AndCreateDocument({
         originalMeasureName: measureName,
         sanitizedMeasureName,
         applicationId,
+        photoLabel,
+        photoIndex,
     })
 
-    const fileName = `${Date.now()}_${applicationId}`
+    // Generate filename: use descriptive name if photoLabel is provided, otherwise fallback to timestamp
+    let fileName: string
+    if (photoLabel && photoIndex !== undefined) {
+        // Sanitize the photo label: lowercase, replace spaces with underscores
+        const sanitizedLabel = photoLabel
+            .toLowerCase()
+            .replace(/\s+/g, '_')
+            .replace(/[^a-z0-9_]/g, '')
+        fileName = `${sanitizedLabel}_${photoIndex}`
+    } else {
+        // Fallback to timestamp-based name for PDFs or when label not provided
+        fileName = `${Date.now()}_${applicationId}`
+    }
 
     // detect file type and set appropriate extension and content type
     let fileExtension = 'pdf'
