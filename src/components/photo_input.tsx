@@ -52,11 +52,14 @@ const PhotoInput: FC<PhotoInputProps> = ({
     error,
     count,
 }) => {
+    // Ensure photos is an array
+    const photosArray = Array.isArray(photos) ? photos : []
+
     // Debug: Log photo data on render
     console.log(
-        `[PhotoInput] Rendering "${label}" with ${photos?.length || 0} photos`,
+        `[PhotoInput] Rendering "${label}" with ${photosArray.length} photos`,
     )
-    photos?.forEach((photoData, index) => {
+    photosArray.forEach((photoData, index) => {
         console.log(`[PhotoInput] Photo ${index} metadata:`, {
             id: photoData.id,
             hasGeolocation: !!photoData.metadata?.geolocation,
