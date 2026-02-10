@@ -956,14 +956,17 @@ const generatePDFWithImageHandling = async (
             ) as HTMLElement[]
 
             for (const photoContainer of photoContainersInChild) {
-                // Each image gets its own page - no text, no other content
-                await renderImageContainerToPDF(
+                // Each image gets its own page - now also renders metadata with geocode links
+                const imageHyperlinks = await renderImageContainerToPDF(
                     pdf,
                     photoContainer,
                     contentWidth,
                     contentHeight,
                     margin,
                 )
+                // Collect hyperlinks from image metadata (geocode links)
+                // Page index is already set correctly in renderImageContainerToPDF
+                allHyperlinkInfos.push(...imageHyperlinks)
                 currentPageCount = pdf.getNumberOfPages()
                 // Add a blank page after each image to ensure clear separation
                 pdf.addPage()
@@ -1168,6 +1171,7 @@ const renderTextContentToPDF = async (
 /**
  * Renders a single image container to PDF on its own page
  * Uses direct image rendering to prevent splitting and ensure exact sizing
+ * Also renders metadata text (timestamp, geolocation) and returns hyperlink info
  */
 const renderImageContainerToPDF = async (
     pdf: jsPDF,
@@ -1175,7 +1179,8 @@ const renderImageContainerToPDF = async (
     contentWidth: number,
     contentHeight: number,
     margin: number,
-): Promise<void> => {
+): Promise<TextRenderHyperlinkInfo[]> => {
+    const hyperlinkInfos: TextRenderHyperlinkInfo[] = []
     // Get PDF page dimensions for boundary checks
     const pdfWidth = pdf.internal.pageSize.getWidth()
     const pdfHeight = pdf.internal.pageSize.getHeight()
@@ -1184,7 +1189,7 @@ const renderImageContainerToPDF = async (
     const img = imageContainer.querySelector('img') as HTMLImageElement
     if (!img) {
         console.warn('No image found in container, skipping')
-        return
+        return hyperlinkInfos
     }
 
     // Wait for image to be fully loaded
@@ -1202,7 +1207,7 @@ const renderImageContainerToPDF = async (
 
     if (img.naturalWidth === 0 || img.naturalHeight === 0) {
         console.warn('Image has no dimensions after waiting, skipping')
-        return
+        return hyperlinkInfos
     }
 
     // Get the image's natural aspect ratio - this MUST be preserved
@@ -1244,7 +1249,7 @@ const renderImageContainerToPDF = async (
     const ctx = canvas.getContext('2d')
     if (!ctx) {
         console.warn('Could not get canvas context')
-        return
+        return hyperlinkInfos
     }
 
     // Use native image dimensions for the canvas (maximum quality)
@@ -1272,7 +1277,7 @@ const renderImageContainerToPDF = async (
     // Double-check: ensure final dimensions are positive and within bounds
     if (finalWidthPt <= 0 || finalHeightPt <= 0) {
         console.warn('Image dimensions invalid, skipping')
-        return
+        return hyperlinkInfos
     }
 
     // Verify dimensions fit within available space (strict check)
@@ -1345,6 +1350,154 @@ const renderImageContainerToPDF = async (
             finalPdfHeight,
         )
     }
+
+    // Calculate where the image ends (for placing metadata text below)
+    const imageBottomY = finalY + finalPdfHeight + 15 // 15pt padding below image
+
+    // Find and render metadata text (timestamp, geolocation) from the container
+    // The metadata is typically in a <small> element with text and links
+    const metadataElements = imageContainer.querySelectorAll(
+        'small, .photo-metadata',
+    )
+
+    console.log(
+        `[renderImageContainerToPDF] Found ${metadataElements.length} metadata elements in photo container`,
+    )
+
+    if (metadataElements.length > 0) {
+        // Get current page index for hyperlink tracking
+        const currentPageIndex = pdf.getNumberOfPages() - 1
+
+        let textY = imageBottomY
+        const fontSize = 10 // Small text for metadata
+        const lineHeight = 14
+
+        pdf.setFontSize(fontSize)
+        pdf.setTextColor(51, 51, 51) // Dark gray
+
+        for (const metadataEl of metadataElements) {
+            // Extract all hyperlinks from this metadata element
+            const links = metadataEl.querySelectorAll('a[href]')
+
+            console.log(
+                `[renderImageContainerToPDF] Metadata element has ${links.length} links`,
+            )
+
+            // Get the full text content and split into lines
+            // The DOM uses line breaks (<br>) which become \n in textContent
+            const fullText = metadataEl.textContent || ''
+            const lines = fullText
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0)
+
+            console.log(
+                `[renderImageContainerToPDF] Metadata lines: ${JSON.stringify(lines)}`,
+            )
+
+            // Render each line
+            for (const line of lines) {
+                // Check if we need a new page for the metadata
+                if (textY + lineHeight > pdfHeight - margin) {
+                    console.log(
+                        `[renderImageContainerToPDF] Adding new page for metadata overflow`,
+                    )
+                    pdf.addPage()
+                    textY = margin
+                }
+
+                // Check if this line contains a geocode link (coordinates like "xx.xxxx,xx.xxxx")
+                const linkTexts = Array.from(links).map(
+                    l => l.textContent?.trim() || '',
+                )
+                let containsLink = false
+                let renderedLinkText = ''
+
+                for (const linkText of linkTexts) {
+                    if (linkText && line.includes(linkText)) {
+                        containsLink = true
+                        renderedLinkText = linkText
+
+                        // Get the link URL
+                        const linkEl = Array.from(links).find(
+                            l => l.textContent?.trim() === linkText,
+                        )
+                        const href = linkEl?.getAttribute('href') || ''
+
+                        // Split line around the link and render with different colors
+                        const parts = line.split(linkText)
+                        let xPos = margin
+
+                        pdf.setTextColor(51, 51, 51) // Dark gray for regular text
+                        if (parts[0]) {
+                            pdf.text(parts[0], xPos, textY)
+                            xPos += pdf.getTextWidth(parts[0])
+                        }
+
+                        // Calculate link position BEFORE rendering (for pdf-lib annotation)
+                        const linkXPos = xPos
+                        const linkWidth = pdf.getTextWidth(linkText)
+
+                        // Render the link text in blue
+                        pdf.setTextColor(0, 102, 204) // Blue for link
+                        pdf.text(linkText, xPos, textY)
+                        xPos += linkWidth
+
+                        // Add underline for the link
+                        const underlineY = textY + 2
+                        pdf.setDrawColor(0, 102, 204)
+                        pdf.setLineWidth(0.5)
+                        pdf.line(
+                            linkXPos,
+                            underlineY,
+                            linkXPos + linkWidth,
+                            underlineY,
+                        )
+
+                        pdf.setTextColor(51, 51, 51) // Back to dark gray
+                        if (parts[1]) {
+                            pdf.text(parts[1], xPos, textY)
+                        }
+
+                        // Record hyperlink info for pdf-lib to add clickable annotation
+                        if (href) {
+                            // jsPDF uses top-left origin, pdf-lib uses bottom-left
+                            // So we need to convert Y coordinate
+                            const pdfLibY = pdfHeight - textY - lineHeight
+
+                            console.log(
+                                `[renderImageContainerToPDF] Adding hyperlink: "${linkText}" at page ${currentPageIndex + 1}, ` +
+                                    `jsPDF pos: (${linkXPos.toFixed(1)}, ${textY.toFixed(1)}), ` +
+                                    `pdf-lib pos: (${linkXPos.toFixed(1)}, ${pdfLibY.toFixed(1)}), ` +
+                                    `URL: ${href}`,
+                            )
+
+                            hyperlinkInfos.push({
+                                url: href,
+                                text: linkText,
+                                pdfX: linkXPos,
+                                pdfY: pdfLibY,
+                                pdfWidth: linkWidth + 10, // Add padding for easier clicking
+                                pdfHeight: lineHeight + 4,
+                                pageIndex: currentPageIndex,
+                            })
+                        }
+
+                        break
+                    }
+                }
+
+                if (!containsLink) {
+                    pdf.setTextColor(51, 51, 51)
+                    pdf.text(line.trim(), margin, textY)
+                }
+
+                textY += lineHeight
+            }
+        }
+    }
+
+    return hyperlinkInfos
 }
 
 /**

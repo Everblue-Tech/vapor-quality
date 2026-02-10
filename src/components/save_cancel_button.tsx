@@ -74,6 +74,12 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
 
                     const blob = await db.getAttachment(id, attachmentId)
 
+                    // Extract geolocation BEFORE upload so it can be stored in vapor-core
+                    const { getMetadataFromPhoto } = await import(
+                        '../utilities/photo_utils'
+                    )
+                    const photoMetadata = await getMetadataFromPhoto(blob)
+
                     const documentId = await uploadImageToS3AndCreateDocument({
                         file: blob,
                         userId: localStorage.getItem('user_id'),
@@ -82,13 +88,8 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                         documentType: 'Quality Install Photo',
                         measureName:
                             projectDoc.metadata_?.doc_name || 'unknown',
+                        geolocation: photoMetadata?.geolocation,
                     })
-
-                    // re-extract geolocation data
-                    const { getMetadataFromPhoto } = await import(
-                        '../utilities/photo_utils'
-                    )
-                    const photoMetadata = await getMetadataFromPhoto(blob)
 
                     updatedMetadata.attachments[attachmentId] = {
                         ...photoMetadata,
