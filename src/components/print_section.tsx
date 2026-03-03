@@ -9,6 +9,7 @@ import { useDB } from '../utilities/database_utils'
 import {
     closeProcessStepIfAllMeasuresComplete,
     updateProcessStepWithMeasure,
+    saveProjectToRDS,
 } from './store'
 import { getConfig } from '../config'
 
@@ -2444,6 +2445,32 @@ const PrintSection: FC<PrintSectionProps> = ({
             if (!vaporCoreDocumentId) {
                 throw new Error('Upload to S3 failed')
             }
+
+            // Save form data to RDS (same logic as early exit save)
+            if (docId && userId && processStepId && applicationId) {
+                try {
+                    const projectDoc: any = await db.get(docId)
+                    const formData = {
+                        metadata_: projectDoc.metadata_,
+                        data_: projectDoc.data_,
+                        type: 'project',
+                        docId: docId,
+                    }
+
+                    await saveProjectToRDS({
+                        userId: userId,
+                        processStepId: processStepId,
+                        formData,
+                        docId: docId,
+                        applicationId: applicationId,
+                    })
+                    console.log('Form data saved to RDS on submission')
+                } catch (saveError) {
+                    console.error('Error saving form data to RDS:', saveError)
+                    // Don't fail the submission if RDS save fails - PDF is already uploaded
+                }
+            }
+
             // update process step with measure info
             await updateProcessStepWithMeasure({
                 userId: userId,
