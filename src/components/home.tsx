@@ -88,6 +88,9 @@ const Home: FC = () => {
     const { upsertAttachment } = useContext(StoreContext)
 
     // listen for postMessage from the parent window (vapor-flow) to initialize form metadata
+    console.log(
+        '[PREFILL STEP 1] Requesting INIT_FORM_DATA from parent window (vapor-flow)',
+    )
     window.parent.postMessage({ type: 'REQUEST_INIT_FORM_DATA' }, '*')
 
     useEffect(() => {
@@ -103,9 +106,23 @@ const Home: FC = () => {
             }
 
             if (event.data?.type === 'INIT_FORM_DATA') {
+                console.log(
+                    '[PREFILL STEP 2] Received INIT_FORM_DATA from vapor-flow',
+                )
                 const payload = event.data.payload as InitFormData
+                console.log('[PREFILL STEP 2] Payload received:', {
+                    user_id: payload.user_id,
+                    application_id: payload.application_id,
+                    process_step_id: payload.step_id,
+                    process_id: payload.process_id,
+                    organization_id: payload.organization_id,
+                    measures: payload.measures,
+                })
 
                 // Store basic session data
+                console.log(
+                    '[PREFILL STEP 3] Storing session data in localStorage',
+                )
                 localStorage.setItem('user_id', payload.user_id)
                 localStorage.setItem('application_id', payload.application_id)
                 localStorage.setItem('process_step_id', payload.step_id)
@@ -133,11 +150,18 @@ const Home: FC = () => {
                     applicant_email: payload.applicant_email,
                     applicant_phone: payload.applicant_phone,
                 }
+                console.log(
+                    '[PREFILL STEP 3] Prefill data prepared:',
+                    prefillData,
+                )
 
                 // Store prefill data in localStorage for persistence
                 localStorage.setItem(
                     'form_prefill_data',
                     JSON.stringify(prefillData),
+                )
+                console.log(
+                    '[PREFILL STEP 3] Prefill data stored in localStorage',
                 )
 
                 setUserId(payload.user_id)
@@ -145,6 +169,9 @@ const Home: FC = () => {
                 setProcessStepId(payload.step_id)
                 setProcessId(payload.process_id)
                 setFormPrefillData(prefillData)
+                console.log(
+                    '[PREFILL STEP 3] React state updated with session data',
+                )
             }
         }
 
@@ -400,22 +427,35 @@ const Home: FC = () => {
     }
 
     const hydrateFromRDS = async () => {
+        console.log(
+            '[PREFILL STEP 4] hydrateFromRDS() called - Starting RDS hydration process',
+        )
         if (!applicationId || !processStepId) {
-            console.log('[hydrateFromRDS] Missing required params:', {
-                applicationId,
-                processStepId,
-            })
+            console.log(
+                '[PREFILL STEP 4] Missing required params - cannot hydrate:',
+                {
+                    applicationId,
+                    processStepId,
+                },
+            )
             return
         }
 
         setIsHydrating(true)
-        console.log('[hydrateFromRDS] Starting hydration...')
+        console.log('[PREFILL STEP 4] Hydration starting with params:', {
+            userId,
+            applicationId,
+            processStepId,
+        })
 
         try {
             // check to see if a project already exists for this process_step_id
-            const existingResponse = await fetch(
-                `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`,
+            const apiUrl = `${REACT_APP_VAPORCORE_URL}/api/quality-install?user_id=${userId}&process_step_id=${processStepId}`
+            console.log(
+                '[PREFILL STEP 5] Fetching existing data from vapor-core:',
+                apiUrl,
             )
+            const existingResponse = await fetch(apiUrl)
 
             let shouldCreateFromApplication = false
             let existingData = null
@@ -424,48 +464,70 @@ const Home: FC = () => {
                 const existingResult = await existingResponse.json()
                 existingData = existingResult.forms
                 console.log(
-                    '[hydrateFromRDS] Found existing data for process_step_id:',
-                    existingData,
+                    '[PREFILL STEP 5] SUCCESS - Found existing data for process_step_id:',
+                    {
+                        formsCount: existingData?.length || 0,
+                        formIds: existingData?.map((f: any) => f.id) || [],
+                    },
+                )
+                console.log(
+                    '[PREFILL STEP 5] Full existing data:',
+                    JSON.stringify(existingData, null, 2),
                 )
             } else {
                 console.log(
-                    '[hydrateFromRDS] No existing data for process_step_id, will create from application data',
+                    '[PREFILL STEP 5] No existing data for process_step_id (status:',
+                    existingResponse.status,
+                    ')',
+                )
+                console.log(
+                    '[PREFILL STEP 5] Will attempt to create from application data',
                 )
                 shouldCreateFromApplication = true
             }
 
             // if no existing data for this process_step_id, get application data
             if (shouldCreateFromApplication) {
+                const appApiUrl = `${REACT_APP_VAPORCORE_URL}/api/quality-install/application/${applicationId}`
                 console.log(
-                    '[hydrateFromRDS] Fetching application data for application_id:',
-                    applicationId,
+                    '[PREFILL STEP 6] Fetching application data from vapor-core:',
+                    appApiUrl,
                 )
-                const appResponse = await fetch(
-                    `${REACT_APP_VAPORCORE_URL}/api/quality-install/application/${applicationId}`,
-                )
+                const appResponse = await fetch(appApiUrl)
 
                 if (!appResponse.ok) {
-                    console.warn('[hydrateFromRDS] No application data found')
+                    console.warn(
+                        '[PREFILL STEP 6] No application data found (status:',
+                        appResponse.status,
+                        ')',
+                    )
                     return
                 }
 
                 const appResult = await appResponse.json()
+                console.log(
+                    '[PREFILL STEP 6] SUCCESS - Found application data:',
+                    {
+                        formsCount: appResult.forms?.length || 0,
+                    },
+                )
 
                 const appForms = appResult.forms
 
                 if (!appForms || appForms.length === 0) {
                     console.warn(
-                        '[hydrateFromRDS] No forms found for application',
+                        '[PREFILL STEP 6] No forms found for application - nothing to hydrate',
                     )
                     return
                 }
 
                 // get the most recent form
                 const mostRecentForm = appForms[appForms.length - 1]
-                console.log(
-                    '[hydrateFromRDS] Using most recent form:',
-                    mostRecentForm,
-                )
+                console.log('[PREFILL STEP 6] Using most recent form:', {
+                    formId: mostRecentForm.id,
+                    hasMetadata: !!mostRecentForm.form_data?.metadata_,
+                    hasData: !!mostRecentForm.form_data?.data_,
+                })
 
                 // create a new entry for this process_step_id based on the most recent application data
                 const newFormData = {
@@ -481,6 +543,9 @@ const Home: FC = () => {
                 }
 
                 // create new project entry in the DB in quality_install_form_data
+                console.log(
+                    '[PREFILL STEP 7] Creating new entry in quality_install_form_data table via POST',
+                )
                 const createResponse = await fetch(
                     `${REACT_APP_VAPORCORE_URL}/api/quality-install`,
                     {
@@ -500,40 +565,58 @@ const Home: FC = () => {
                 if (createResponse.ok) {
                     const createdResult = await createResponse.json()
                     existingData = [createdResult]
+                    console.log(
+                        '[PREFILL STEP 7] SUCCESS - Created new entry in vapor-core',
+                    )
                 } else {
-                    console.error('[hydrateFromRDS] Failed to create new entry')
+                    console.error(
+                        '[PREFILL STEP 7] FAILED to create new entry (status:',
+                        createResponse.status,
+                        ')',
+                    )
                     return
                 }
             }
 
             // process data (newly created or existing entry)
             if (!existingData || existingData.length === 0) {
-                console.warn('[hydrateFromRDS] No data to process')
+                console.warn(
+                    '[PREFILL STEP 8] No data to process - hydration complete with no data',
+                )
                 return
             }
 
+            console.log(
+                '[PREFILL STEP 8] Processing',
+                existingData.length,
+                'form(s) from RDS',
+            )
             const rdsProjects = existingData
 
             for (const entry of rdsProjects) {
+                console.log('[PREFILL STEP 8] Processing entry:', entry.id)
                 const exists = await db.get(entry.id).catch(() => null)
 
                 // GET THE ATTACHMENTS METADATA FROM RDS DATA
                 const formData = entry.form_data
                 const attachmentsFromRDS =
                     formData?.metadata_?.attachments || {}
-                console.log(
-                    '[hydrateFromRDS] RDS attachments metadata:',
-                    JSON.stringify(attachmentsFromRDS, null, 2),
-                )
+                console.log('[PREFILL STEP 8] Form data from RDS:', {
+                    entryId: entry.id,
+                    hasMetadata: !!formData?.metadata_,
+                    hasData: !!formData?.data_,
+                    attachmentsCount: Object.keys(attachmentsFromRDS).length,
+                    attachmentIds: Object.keys(attachmentsFromRDS),
+                })
 
                 if (!exists) {
                     console.log(
-                        '[hydrateFromRDS] Entry does not exist, creating...',
+                        '[PREFILL STEP 9] Document does NOT exist in PouchDB - will create',
                     )
 
                     if (!formData?.metadata_ || !formData?.data_) {
                         console.warn(
-                            '[hydrateFromRDS] Skipped incomplete form data:',
+                            '[PREFILL STEP 9] Skipped incomplete form data (missing metadata_ or data_):',
                             entry.id,
                         )
                         continue
@@ -545,16 +628,24 @@ const Home: FC = () => {
                         data_: formData.data_,
                         type: 'project',
                     }
+                    console.log(
+                        '[PREFILL STEP 9] Writing document to PouchDB:',
+                        {
+                            docId: entry.id,
+                            metadataKeys: Object.keys(formData.metadata_ || {}),
+                            dataKeys: Object.keys(formData.data_ || {}),
+                        },
+                    )
 
                     try {
                         const result = await db.put(docToInsert)
                         console.log(
-                            '[hydrateFromRDS] Successfully wrote doc:',
+                            '[PREFILL STEP 9] SUCCESS - Document written to PouchDB:',
                             result,
                         )
                     } catch (e) {
                         console.error(
-                            '[hydrateFromRDS] Failed to write doc:',
+                            '[PREFILL STEP 9] FAILED to write document to PouchDB:',
                             entry.id,
                             e,
                         )
@@ -562,17 +653,17 @@ const Home: FC = () => {
                     }
                 } else {
                     console.log(
-                        '[hydrateFromRDS] Document exists, checking attachments...',
+                        '[PREFILL STEP 9] Document ALREADY EXISTS in PouchDB - checking attachments',
                     )
 
                     // Check if existing doc has all the attachments it should have
                     const existingAttachments = exists._attachments || {}
                     console.log(
-                        '[hydrateFromRDS] Existing doc attachments:',
+                        '[PREFILL STEP 9] Existing PouchDB attachments:',
                         Object.keys(existingAttachments),
                     )
                     console.log(
-                        '[hydrateFromRDS] Expected attachments from RDS:',
+                        '[PREFILL STEP 9] Expected attachments from RDS:',
                         Object.keys(attachmentsFromRDS),
                     )
 
@@ -581,14 +672,18 @@ const Home: FC = () => {
                         attachmentsFromRDS,
                     ).filter(attachmentId => !existingAttachments[attachmentId])
                     console.log(
-                        '[hydrateFromRDS] Missing attachments:',
+                        '[PREFILL STEP 9] Missing attachments to hydrate:',
                         missingAttachments,
                     )
                 }
 
                 // HYDRATE ATTACHMENTS (whether doc is new or existing)
                 if (Object.keys(attachmentsFromRDS).length > 0) {
-                    console.log('[hydrateFromRDS] Processing attachments...')
+                    console.log(
+                        '[PREFILL STEP 10] Processing',
+                        Object.keys(attachmentsFromRDS).length,
+                        'attachment(s)...',
+                    )
 
                     // Create a temporary upsert function for hydration
                     const tempUpsertAttachment = async (

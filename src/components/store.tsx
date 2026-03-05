@@ -121,6 +121,11 @@ export const StoreProvider: FC<StoreProviderProps> = ({
      * @param dbDoc The full object representation of the changed document from the database
      */
     async function processDBDocChange(db: PouchDB.Database, dbDoc: any) {
+        console.log(
+            '[PREFILL STEP 11] StoreProvider.processDBDocChange() - Loading data from PouchDB',
+        )
+        console.log('[PREFILL STEP 11] Document ID:', dbDoc._id)
+        console.log('[PREFILL STEP 11] Document revision:', dbDoc._rev)
         revisionRef.current = dbDoc._rev
 
         // Set doc state
@@ -129,7 +134,20 @@ export const StoreProvider: FC<StoreProviderProps> = ({
         delete newDoc._id
         delete newDoc._rev
 
+        console.log('[PREFILL STEP 11] Setting doc state with:', {
+            hasMetadata: !!newDoc.metadata_,
+            hasData: !!newDoc.data_,
+            metadataKeys: Object.keys(newDoc.metadata_ || {}),
+            dataKeys: Object.keys(newDoc.data_ || {}),
+        })
+        console.log(
+            '[PREFILL STEP 11] Form data (data_) values:',
+            JSON.stringify(newDoc.data_, null, 2),
+        )
         setDoc(newDoc)
+        console.log(
+            '[PREFILL STEP 11] React state updated - form should now be prefilled',
+        )
 
         // Update the attachments state as needed
         // Note: dbDoc will not have a _attachments field if the document has no attachments
@@ -201,6 +219,13 @@ export const StoreProvider: FC<StoreProviderProps> = ({
          *     originated from this component
          */
         ;(async function connectStoreToDB() {
+            console.log(
+                '[PREFILL STEP 10] StoreProvider.connectStoreToDB() - Connecting to PouchDB',
+            )
+            console.log(
+                '[PREFILL STEP 10] Looking for document with ID:',
+                docId,
+            )
             try {
                 const normalizedDocId = docId === '0' ? undefined : docId
 
@@ -213,6 +238,9 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                 }
 
                 if (!existingDoc) {
+                    console.log(
+                        '[PREFILL STEP 10] Document NOT found in PouchDB - creating new document',
+                    )
                     const result = !isInstallationDoc
                         ? await putNewProject(db, docName, docId)
                         : await putNewInstallation(
@@ -225,19 +253,41 @@ export const StoreProvider: FC<StoreProviderProps> = ({
                     revisionRef.current = (
                         result as unknown as PouchDB.Core.Response
                     ).rev
+                    console.log(
+                        '[PREFILL STEP 10] New document created with rev:',
+                        revisionRef.current,
+                    )
                 } else {
+                    console.log(
+                        '[PREFILL STEP 10] Document FOUND in PouchDB:',
+                        {
+                            docId: existingDoc._id,
+                            rev: existingDoc._rev,
+                            hasMetadata: !!existingDoc.metadata_,
+                            hasData: !!existingDoc.data_,
+                        },
+                    )
                     revisionRef.current = existingDoc._rev
                 }
             } catch (err) {
-                console.error('DB initialization error:', err)
+                console.error('[PREFILL STEP 10] DB initialization error:', err)
                 // TODO: Rethink how best to handle errors
             }
             // Initialize doc and attachments state from the DB document
             try {
+                console.log(
+                    '[PREFILL STEP 11] Fetching document from PouchDB to initialize state',
+                )
                 const dbDoc = await db.get(docId)
+                console.log(
+                    '[PREFILL STEP 11] Document fetched, calling processDBDocChange()',
+                )
                 processDBDocChange(db, dbDoc)
             } catch (err) {
-                console.error('Unable to initialize state from DB:', err)
+                console.error(
+                    '[PREFILL STEP 11] Unable to initialize state from DB:',
+                    err,
+                )
             }
 
             // Subscribe to DB document changes
