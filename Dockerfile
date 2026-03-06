@@ -39,8 +39,8 @@ RUN apk add --no-cache nginx gettext
 
 # Set up backend
 WORKDIR /server
-COPY server/package.json server/package-lock.json ./
-RUN npm ci
+COPY server/package.json ./
+RUN npm install --legacy-peer-deps
 COPY server/server.js .
 
 # Copy frontend assets
