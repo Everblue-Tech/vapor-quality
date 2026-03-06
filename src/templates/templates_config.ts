@@ -132,7 +132,7 @@ export const measureTypeMapping: Record<string, string[]> = {
         'High Efficiency Gas Furnace',
         'Electric Cooking Appliances',
         'Heat Pump Clothes Dryer',
-        'Appliance Upgrade'
+        'Appliance Upgrade',
     ],
     ceiling_insulation: ['Attic Air Sealing and Insulation'],
     cooling_equipment: ['Heat Pump Ducted', 'Heat Pump Ductless'],
