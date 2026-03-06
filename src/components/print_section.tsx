@@ -13,6 +13,88 @@ import {
 } from './store'
 import { getConfig } from '../config'
 
+/**
+ * Maximum canvas pixels before we need to use JPEG compression to avoid string length errors
+ * ~25 million pixels is roughly where we start risking "invalid string length" errors
+ */
+const MAX_CANVAS_PIXELS_FOR_PNG = 25_000_000
+
+/**
+ * Safely converts a canvas to a data URL, with fallback to JPEG if PNG is too large
+ * This prevents "invalid string length" errors when dealing with very large canvases
+ */
+const safeCanvasToDataURL = (
+    canvas: HTMLCanvasElement,
+    preferredFormat: 'image/png' | 'image/jpeg' = 'image/png',
+): { dataUrl: string; format: 'PNG' | 'JPEG' } => {
+    const totalPixels = canvas.width * canvas.height
+    console.log(
+        `[safeCanvasToDataURL] Canvas size: ${canvas.width}x${canvas.height} = ${totalPixels.toLocaleString()} pixels`,
+    )
+
+    // For very large canvases, skip PNG entirely and go straight to JPEG
+    if (totalPixels > MAX_CANVAS_PIXELS_FOR_PNG) {
+        console.warn(
+            `[safeCanvasToDataURL] Canvas too large for PNG (${totalPixels.toLocaleString()} pixels), using JPEG`,
+        )
+        try {
+            const jpegData = canvas.toDataURL('image/jpeg', 0.85)
+            console.log(
+                `[safeCanvasToDataURL] JPEG data URL length: ${jpegData.length.toLocaleString()} chars`,
+            )
+            return { dataUrl: jpegData, format: 'JPEG' }
+        } catch (jpegError) {
+            console.error(
+                '[safeCanvasToDataURL] JPEG conversion also failed:',
+                jpegError,
+            )
+            throw new Error(
+                `Canvas too large to convert (${canvas.width}x${canvas.height} pixels). Try reducing the number or size of images.`,
+            )
+        }
+    }
+
+    // Try preferred format first
+    try {
+        const dataUrl = canvas.toDataURL(preferredFormat)
+        console.log(
+            `[safeCanvasToDataURL] ${preferredFormat} data URL length: ${dataUrl.length.toLocaleString()} chars`,
+        )
+        return {
+            dataUrl,
+            format: preferredFormat === 'image/png' ? 'PNG' : 'JPEG',
+        }
+    } catch (error: any) {
+        // Check for "invalid string length" error
+        if (
+            error?.message?.includes('invalid string length') ||
+            error?.message?.includes('Invalid string length')
+        ) {
+            console.warn(
+                `[safeCanvasToDataURL] PNG too large, falling back to JPEG. Error: ${error.message}`,
+            )
+
+            // Try JPEG with compression as fallback
+            try {
+                const jpegData = canvas.toDataURL('image/jpeg', 0.85)
+                console.log(
+                    `[safeCanvasToDataURL] Fallback JPEG data URL length: ${jpegData.length.toLocaleString()} chars`,
+                )
+                return { dataUrl: jpegData, format: 'JPEG' }
+            } catch (jpegError: any) {
+                console.error(
+                    '[safeCanvasToDataURL] JPEG fallback also failed:',
+                    jpegError,
+                )
+                throw new Error(
+                    `Unable to convert canvas to image: content is too large. Please reduce the number of photos or image sizes. (${canvas.width}x${canvas.height} pixels)`,
+                )
+            }
+        }
+        throw error
+    }
+}
+
 interface PrintSectionProps {
     children: ReactNode
     label: string
@@ -791,9 +873,11 @@ const generatePDFFromHTML = async (
         const contentWidth = pdfWidth - marginPt * 2
         const contentHeight = pdfHeight - marginPt * 2
 
-        // Step 4: Convert canvas to image
-        // Use PNG for maximum quality, fallback to JPEG if needed
-        const imgData = canvas.toDataURL('image/png')
+        // Step 4: Convert canvas to image (with safe fallback for large canvases)
+        const { dataUrl: imgData, format: imgFormat } = safeCanvasToDataURL(
+            canvas,
+            'image/png',
+        )
         const imgWidth = canvas.width
         const imgHeight = canvas.height
 
@@ -808,7 +892,7 @@ const generatePDFFromHTML = async (
         // Add first page
         pdf.addImage(
             imgData,
-            'PNG', // Use PNG for maximum quality
+            imgFormat,
             marginPt,
             position,
             contentWidth,
@@ -821,7 +905,7 @@ const generatePDFFromHTML = async (
             pdf.addPage()
             pdf.addImage(
                 imgData,
-                'PNG', // Use PNG for maximum quality
+                imgFormat,
                 marginPt,
                 position,
                 contentWidth,
@@ -1071,7 +1155,11 @@ const renderTextContentToPDF = async (
             removeContainer: false,
         })
 
-        const imgData = canvas.toDataURL('image/png') // Use PNG for better quality
+        // Convert canvas to image (with safe fallback for large canvases)
+        const { dataUrl: imgData, format: imgFormat } = safeCanvasToDataURL(
+            canvas,
+            'image/png',
+        )
         // Scale factor: html2canvas uses scale=2.0, so canvas dimensions are 2x the DOM dimensions
         const html2canvasScale = 2.0
         // Calculate how much we scale from canvas to PDF
@@ -1140,7 +1228,7 @@ const renderTextContentToPDF = async (
 
         pdf.addImage(
             imgData,
-            'PNG', // Use PNG for maximum quality
+            imgFormat,
             margin,
             position,
             contentWidth,
@@ -1152,7 +1240,7 @@ const renderTextContentToPDF = async (
             pdf.addPage()
             pdf.addImage(
                 imgData,
-                'PNG', // Use PNG for maximum quality (was JPEG)
+                imgFormat,
                 margin,
                 position,
                 contentWidth,
@@ -1268,8 +1356,11 @@ const renderImageContainerToPDF = async (
     // Draw the image at its full native size (no scaling, maximum quality)
     ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight)
 
-    // Convert to image data at maximum quality using PNG (lossless)
-    const imgData = canvas.toDataURL('image/png')
+    // Convert to image data (with safe fallback for large canvases)
+    const { dataUrl: imgData, format: imgFormat } = safeCanvasToDataURL(
+        canvas,
+        'image/png',
+    )
 
     console.log(
         `Canvas: ${canvas.width}x${canvas.height}px -> PDF output: ${finalWidthPt.toFixed(0)}x${finalHeightPt.toFixed(0)}pt (aspect preserved: ${(finalWidthPt / finalHeightPt).toFixed(3)} vs ${imageAspectRatio.toFixed(3)})`,
@@ -1334,7 +1425,7 @@ const renderImageContainerToPDF = async (
         // Force to top-left corner with safe dimensions (preserving aspect ratio)
         pdf.addImage(
             imgData,
-            'PNG',
+            imgFormat,
             margin,
             margin,
             finalPdfWidth,
@@ -1344,7 +1435,7 @@ const renderImageContainerToPDF = async (
         // Add image to PDF - using dimensions that preserve aspect ratio
         pdf.addImage(
             imgData,
-            'PNG',
+            imgFormat,
             finalX,
             finalY,
             finalPdfWidth,
@@ -1524,10 +1615,20 @@ const generateChunkPDF = async (
  * Combines multiple PDF blobs into a single PDF
  */
 const combinePDFs = async (pdfBlobs: Blob[]): Promise<Blob> => {
+    console.log(
+        `[combinePDFs] Combining ${pdfBlobs.length} PDFs, total size: ${pdfBlobs.reduce((sum, b) => sum + b.size, 0).toLocaleString()} bytes`,
+    )
+
     try {
         const pdfDoc = await PDFDocument.create()
+        let totalPages = 0
 
-        for (const pdfBlob of pdfBlobs) {
+        for (let i = 0; i < pdfBlobs.length; i++) {
+            const pdfBlob = pdfBlobs[i]
+            console.log(
+                `[combinePDFs] Processing PDF ${i + 1}/${pdfBlobs.length}, size: ${pdfBlob.size.toLocaleString()} bytes`,
+            )
+
             const pdfBytes = await pdfBlob.arrayBuffer()
             const sourcePdf = await PDFDocument.load(pdfBytes)
 
@@ -1538,19 +1639,56 @@ const combinePDFs = async (pdfBlobs: Blob[]): Promise<Blob> => {
             // Add each copied page to the combined PDF
             copiedPages.forEach((page: any) => {
                 pdfDoc.addPage(page)
+                totalPages++
             })
         }
 
-        const combinedPdfBytes = await pdfDoc.save()
-        const buffer = new ArrayBuffer(combinedPdfBytes.byteLength)
-        const view = new Uint8Array(buffer)
-        view.set(combinedPdfBytes)
-        return new Blob([buffer], {
-            type: 'application/pdf',
-        })
-    } catch (error) {
-        console.error('Error combining PDFs:', error)
-        throw new Error('Failed to combine PDF chunks')
+        console.log(
+            `[combinePDFs] All PDFs merged, total pages: ${totalPages}. Saving combined PDF...`,
+        )
+
+        try {
+            const combinedPdfBytes = await pdfDoc.save()
+            console.log(
+                `[combinePDFs] Combined PDF saved successfully, size: ${combinedPdfBytes.byteLength.toLocaleString()} bytes`,
+            )
+
+            const buffer = new ArrayBuffer(combinedPdfBytes.byteLength)
+            const view = new Uint8Array(buffer)
+            view.set(combinedPdfBytes)
+            return new Blob([buffer], {
+                type: 'application/pdf',
+            })
+        } catch (saveError: any) {
+            // Check for "invalid string length" error during PDF save
+            if (
+                saveError?.message?.includes('invalid string length') ||
+                saveError?.message?.includes('Invalid string length')
+            ) {
+                console.error(
+                    '[combinePDFs] PDF is too large to save. Total pages:',
+                    totalPages,
+                )
+                throw new Error(
+                    `The combined PDF is too large to generate (${totalPages} pages). Please reduce the number of photos or image quality and try again.`,
+                )
+            }
+            throw saveError
+        }
+    } catch (error: any) {
+        console.error('[combinePDFs] Error combining PDFs:', error)
+        // Provide more helpful error message
+        if (
+            error?.message?.includes('invalid string length') ||
+            error?.message?.includes('Invalid string length')
+        ) {
+            throw new Error(
+                'The PDF content is too large to process. Please reduce the number of photos or try generating the report with fewer sections.',
+            )
+        }
+        throw new Error(
+            error?.message || 'Failed to combine PDF chunks. Please try again.',
+        )
     }
 }
 

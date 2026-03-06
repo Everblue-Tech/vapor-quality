@@ -65,7 +65,7 @@ const PhotoWrapper: FC<PhotoWrapperProps> = ({
                 console.log(
                     `[PhotoWrapper] Found document with ${Object.keys(doc._attachments).length} attachments`,
                 )
-                // Filter attachments whose IDs start with given 'id;
+                // Filter attachments whose IDs start with given 'id'
                 const matchingAttachments = Object.keys(doc._attachments)
                     .filter(attachmentId => attachmentId.startsWith(id))
                     .map(attachmentId => {
@@ -74,14 +74,42 @@ const PhotoWrapper: FC<PhotoWrapperProps> = ({
                         )
                         const attachment = doc._attachments[attachmentId]
 
-                        // Decode the Base64 data to a Blob
-                        const byteCharacters = Uint8Array.from(
-                            window.atob(attachment.data),
-                            c => c.charCodeAt(0),
-                        )
-                        const photoBlob = new Blob([byteCharacters], {
-                            type: attachment.content_type,
-                        })
+                        // Decode the Base64 data to a Blob with error handling
+                        let photoBlob: Blob
+                        try {
+                            const base64Data = attachment.data
+                            console.log(
+                                `[PhotoWrapper] Decoding base64 data for ${attachmentId}, length: ${base64Data?.length?.toLocaleString() || 'unknown'} chars`,
+                            )
+
+                            // Check for excessively large base64 data that could cause "invalid string length" error
+                            const MAX_SAFE_BASE64_LENGTH = 50_000_000 // ~50MB base64 = ~37.5MB binary
+                            if (
+                                base64Data &&
+                                base64Data.length > MAX_SAFE_BASE64_LENGTH
+                            ) {
+                                console.warn(
+                                    `[PhotoWrapper] Attachment ${attachmentId} is very large (${(base64Data.length / 1_000_000).toFixed(1)}MB base64), may cause performance issues`,
+                                )
+                            }
+
+                            const byteCharacters = Uint8Array.from(
+                                window.atob(base64Data),
+                                c => c.charCodeAt(0),
+                            )
+                            photoBlob = new Blob([byteCharacters], {
+                                type: attachment.content_type,
+                            })
+                        } catch (decodeError: any) {
+                            console.error(
+                                `[PhotoWrapper] Failed to decode attachment ${attachmentId}:`,
+                                decodeError?.message || decodeError,
+                            )
+                            // Return a placeholder blob for failed attachments
+                            photoBlob = new Blob([], {
+                                type: attachment.content_type || 'image/png',
+                            })
+                        }
 
                         const attachmentIdParts = attachmentId.split('.')
                         /* Fetching location metadata for objects stored in as nested objects
