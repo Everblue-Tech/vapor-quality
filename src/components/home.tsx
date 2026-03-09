@@ -926,8 +926,11 @@ const Home: FC = () => {
     }
 
     const handleAddJob = async () => {
-        // Dynamically import the function when needed
+        // Each measure gets its own project - don't force reuse
+        // The measure name (doc_name) will be set when user selects a template
+        console.log('[handleAddJob] Creating new project for measure')
         const { putNewProject } = await import('../utilities/database_utils')
+
         // Create project name from prefill data if available
         const projectName =
             formPrefillData.project_name ||

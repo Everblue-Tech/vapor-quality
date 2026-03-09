@@ -127,6 +127,20 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 docId: id,
             }
 
+            // Log what's being saved for debugging
+            const attachmentsInfo = updatedDoc.metadata_?.attachments || {}
+            console.log('[SAVE TO RDS] Saving project with attachments:', {
+                docId: id,
+                attachmentCount: Object.keys(attachmentsInfo).length,
+                attachmentsWithDocumentId: Object.entries(attachmentsInfo)
+                    .filter(([_, meta]: [string, any]) => meta?.documentId)
+                    .map(([key, meta]: [string, any]) => ({
+                        key,
+                        documentId: meta.documentId,
+                    })),
+                dataKeys: Object.keys(updatedDoc.data_ || {}),
+            })
+
             await saveProjectToRDS({
                 userId: localStorage.getItem('user_id')!,
                 processStepId: localStorage.getItem('process_step_id')!,
@@ -135,6 +149,7 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
                 applicationId: localStorage.getItem('application_id')!,
             })
 
+            console.log('[SAVE TO RDS] Project saved successfully')
             updateValue('created')
             navigate('/', { replace: true })
         } catch (error) {

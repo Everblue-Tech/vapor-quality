@@ -253,6 +253,16 @@ const PhotoInputWrapper: FC<PhotoInputWrapperProps> = ({
                             timestamp: new Date().toISOString(),
                         }
 
+                        console.log(
+                            '[PHOTO SAVE] Storing attachment with metadata:',
+                            {
+                                attachmentId: nextKey,
+                                hasDocumentId: !!documentId,
+                                documentId: documentId,
+                                hasGeolocation: !!photoMetadata?.geolocation,
+                            },
+                        )
+
                         // Store locally with enriched metadata
                         upsertAttachment(
                             file,
