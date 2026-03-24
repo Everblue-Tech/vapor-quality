@@ -155,6 +155,15 @@ export const StoreProvider: FC<StoreProviderProps> = ({
             // Collect all the new or modified attachments
             const dbDocAttachments = dbDoc._attachments
             const attachmentsMetadata = dbDoc.metadata_.attachments
+
+            console.log(
+                '[PREFILL STEP 12] Processing attachments for prefill:',
+                {
+                    attachmentCount: Object.keys(dbDocAttachments || {}).length,
+                    attachmentIds: Object.keys(dbDocAttachments || {}),
+                },
+            )
+
             let newAttachments: Record<string, Attachment> = {}
             for (const attachmentId in dbDocAttachments) {
                 const docAttachment = dbDocAttachments[attachmentId]

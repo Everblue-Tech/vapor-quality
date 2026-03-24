@@ -601,13 +601,40 @@ const Home: FC = () => {
                 const formData = entry.form_data
                 const attachmentsFromRDS =
                     formData?.metadata_?.attachments || {}
+
+                // Log summary info
                 console.log('[PREFILL STEP 8] Form data from RDS:', {
                     entryId: entry.id,
+                    measureName: formData?.metadata_?.doc_name || 'unknown',
                     hasMetadata: !!formData?.metadata_,
                     hasData: !!formData?.data_,
                     attachmentsCount: Object.keys(attachmentsFromRDS).length,
                     attachmentIds: Object.keys(attachmentsFromRDS),
                 })
+
+                // Log full metadata (for debugging prefill issues)
+                console.log(
+                    '[PREFILL STEP 8] Full metadata_ to hydrate:',
+                    JSON.stringify(formData?.metadata_, null, 2),
+                )
+
+                // Log full data (form field values)
+                console.log(
+                    '[PREFILL STEP 8] Full data_ to hydrate (form values):',
+                    JSON.stringify(formData?.data_, null, 2),
+                )
+
+                // Log attachments with their documentIds (for image hydration)
+                if (Object.keys(attachmentsFromRDS).length > 0) {
+                    console.log('[PREFILL STEP 8] Attachments to hydrate:')
+                    Object.entries(attachmentsFromRDS).forEach(
+                        ([key, value]: [string, any]) => {
+                            console.log(
+                                `  - ${key}: documentId=${value?.documentId || 'NONE'}, hasGeolocation=${!!value?.geolocation}`,
+                            )
+                        },
+                    )
+                }
 
                 if (!exists) {
                     console.log(
