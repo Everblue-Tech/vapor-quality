@@ -2595,6 +2595,29 @@ const PrintSection: FC<PrintSectionProps> = ({
                         docId: docId,
                     }
 
+                    // Log full form data being saved to RDS
+                    console.log(
+                        '[SAVE ON SUBMIT] Saving full form data to RDS:',
+                    )
+                    console.log('[SAVE ON SUBMIT] docId:', docId)
+                    console.log('[SAVE ON SUBMIT] measureName:', measureName)
+                    console.log(
+                        '[SAVE ON SUBMIT] Full data_ (form fields):',
+                        JSON.stringify(projectDoc.data_, null, 2),
+                    )
+                    console.log(
+                        '[SAVE ON SUBMIT] Full metadata_:',
+                        JSON.stringify(projectDoc.metadata_, null, 2),
+                    )
+                    console.log(
+                        '[SAVE ON SUBMIT] data_ keys:',
+                        Object.keys(projectDoc.data_ || {}),
+                    )
+                    console.log(
+                        '[SAVE ON SUBMIT] Attachments:',
+                        Object.keys(projectDoc.metadata_?.attachments || {}),
+                    )
+
                     await saveProjectToRDS({
                         userId: userId,
                         processStepId: processStepId,
@@ -2602,7 +2625,9 @@ const PrintSection: FC<PrintSectionProps> = ({
                         docId: docId,
                         applicationId: applicationId,
                     })
-                    console.log('Form data saved to RDS on submission')
+                    console.log(
+                        '[SAVE ON SUBMIT] Form data saved to RDS successfully',
+                    )
                 } catch (saveError) {
                     console.error('Error saving form data to RDS:', saveError)
                     // Don't fail the submission if RDS save fails - PDF is already uploaded

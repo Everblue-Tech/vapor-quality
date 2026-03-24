@@ -129,16 +129,28 @@ const SaveCancelButton: FC<SaveCancelButtonProps> = ({
 
             // Log what's being saved for debugging
             const attachmentsInfo = updatedDoc.metadata_?.attachments || {}
-            console.log('[SAVE TO RDS] Saving project with attachments:', {
-                docId: id,
-                attachmentCount: Object.keys(attachmentsInfo).length,
-                attachmentsWithDocumentId: Object.entries(attachmentsInfo)
+            console.log('[SAVE TO RDS] Saving project:')
+            console.log('[SAVE TO RDS] docId:', id)
+            console.log(
+                '[SAVE TO RDS] measureName:',
+                updatedDoc.metadata_?.doc_name,
+            )
+            console.log(
+                '[SAVE TO RDS] Full data_ (form fields):',
+                JSON.stringify(updatedDoc.data_, null, 2),
+            )
+            console.log(
+                '[SAVE TO RDS] data_ keys:',
+                Object.keys(updatedDoc.data_ || {}),
+            )
+            console.log('[SAVE TO RDS] Attachments:', {
+                count: Object.keys(attachmentsInfo).length,
+                withDocumentId: Object.entries(attachmentsInfo)
                     .filter(([_, meta]: [string, any]) => meta?.documentId)
                     .map(([key, meta]: [string, any]) => ({
                         key,
                         documentId: meta.documentId,
                     })),
-                dataKeys: Object.keys(updatedDoc.data_ || {}),
             })
 
             await saveProjectToRDS({
