@@ -948,6 +948,64 @@ export async function saveProjectToRDS({
     docId: string
     applicationId: string
 }) {
+    // Log exactly what we're saving to the quality_install_form_data table
+    try {
+        console.log('[saveProjectToRDS] ========== SAVING TO RDS ==========')
+        console.log('[saveProjectToRDS] Endpoint: POST /api/quality-install')
+        console.log('[saveProjectToRDS] Table: quality_install_form_data')
+        console.log('[saveProjectToRDS] Parameters:')
+        console.log('  - user_id:', userId || 'NOT SET')
+        console.log('  - process_step_id:', processStepId || 'NOT SET')
+        console.log('  - application_id:', applicationId || 'NOT SET')
+        console.log('  - id (docId):', docId || 'NOT SET')
+        console.log('[saveProjectToRDS] form_data structure:')
+        console.log('  - type:', formData?.type || 'NOT SET')
+        console.log('  - docId:', formData?.docId || 'NOT SET')
+        console.log(
+            '  - metadata_ keys:',
+            formData?.metadata_ ? Object.keys(formData.metadata_) : [],
+        )
+        console.log(
+            '  - data_ keys:',
+            formData?.data_ ? Object.keys(formData.data_) : [],
+        )
+        console.log(
+            '  - data_ field count:',
+            formData?.data_ ? Object.keys(formData.data_).length : 0,
+        )
+        console.log(
+            '  - metadata_.doc_name (measure):',
+            formData?.metadata_?.doc_name || 'NOT SET',
+        )
+        console.log(
+            '  - metadata_.attachments count:',
+            formData?.metadata_?.attachments
+                ? Object.keys(formData.metadata_.attachments).length
+                : 0,
+        )
+        // Only log full form_data if it's reasonably small
+        try {
+            const formDataStr = JSON.stringify(formData, null, 2)
+            if (formDataStr && formDataStr.length < 10000) {
+                console.log('[saveProjectToRDS] Full form_data:', formDataStr)
+            } else {
+                console.log(
+                    '[saveProjectToRDS] Full form_data: (too large to log, length:',
+                    formDataStr?.length || 0,
+                    ')',
+                )
+            }
+        } catch (jsonError) {
+            console.warn(
+                '[saveProjectToRDS] Could not stringify form_data:',
+                jsonError,
+            )
+        }
+        console.log('[saveProjectToRDS] =====================================')
+    } catch (logError) {
+        console.warn('[saveProjectToRDS] Error during logging:', logError)
+    }
+
     const response = await fetch(
         `${REACT_APP_VAPORCORE_URL}/api/quality-install`,
         {
@@ -966,11 +1024,30 @@ export async function saveProjectToRDS({
     )
 
     if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to save project info to RDS')
+        let error: any = { error: 'Unknown error' }
+        try {
+            error = await response.json()
+        } catch (parseError) {
+            console.error(
+                '[saveProjectToRDS] Failed to parse error response:',
+                parseError,
+            )
+        }
+        console.error('[saveProjectToRDS] FAILED:', error)
+        throw new Error(error?.error || 'Failed to save project info to RDS')
     }
 
-    return await response.json()
+    let result: any = {}
+    try {
+        result = await response.json()
+    } catch (parseError) {
+        console.warn(
+            '[saveProjectToRDS] Failed to parse success response:',
+            parseError,
+        )
+    }
+    console.log('[saveProjectToRDS] SUCCESS:', result)
+    return result
 }
 
 export async function getProjectsFromRDS(
