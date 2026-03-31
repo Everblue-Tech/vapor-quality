@@ -1,4 +1,4 @@
-import { useId, useState, FC, ReactNode, useEffect } from 'react'
+import { useId, useState, FC, ReactNode, useEffect, useContext } from 'react'
 import print from 'print-js'
 import Button from 'react-bootstrap/Button'
 import html2canvas from 'html2canvas'
@@ -10,6 +10,7 @@ import {
     closeProcessStepIfAllMeasuresComplete,
     updateProcessStepWithMeasure,
     saveProjectToRDS,
+    StoreContext,
 } from './store'
 import { getConfig } from '../config'
 
@@ -2296,13 +2297,25 @@ const PrintSection: FC<PrintSectionProps> = ({
     const [isUploading, setIsUploading] = useState(false)
 
     const db = useDB()
-    const docId = localStorage.getItem('selected_doc_id')
+
+    // Get docId from StoreContext (the installation/job document ID)
+    // This is the correct document that contains the form data
+    const storeContext = useContext(StoreContext)
+    const docId = storeContext.docId || localStorage.getItem('selected_doc_id')
+
     const userId = localStorage.getItem('user_id')
     const processId = localStorage.getItem('process_id')
     const processStepId = localStorage.getItem('process_step_id')
     const organizationId = localStorage.getItem('organization_id')
     const applicationId = localStorage.getItem('application_id')
     const documentType = 'Quality Install Document'
+
+    // Debug: Log which docId is being used
+    console.log('[PrintSection] docId sources:', {
+        fromContext: storeContext.docId || 'NOT SET',
+        fromLocalStorage: localStorage.getItem('selected_doc_id') || 'NOT SET',
+        using: docId || 'NONE',
+    })
 
     const printContainerId = useId()
     const isSafari = () =>
@@ -2585,6 +2598,13 @@ const PrintSection: FC<PrintSectionProps> = ({
             }
 
             // Save form data to RDS (same logic as early exit save)
+            console.log('[SAVE ON SUBMIT] Checking required params:', {
+                docId: docId || 'MISSING',
+                userId: userId || 'MISSING',
+                processStepId: processStepId || 'MISSING',
+                applicationId: applicationId || 'MISSING',
+            })
+
             if (docId && userId && processStepId && applicationId) {
                 try {
                     const projectDoc: any = await db.get(docId)
@@ -2632,6 +2652,16 @@ const PrintSection: FC<PrintSectionProps> = ({
                     console.error('Error saving form data to RDS:', saveError)
                     // Don't fail the submission if RDS save fails - PDF is already uploaded
                 }
+            } else {
+                console.warn(
+                    '[SAVE ON SUBMIT] SKIPPED - Missing required params:',
+                    {
+                        docId: !!docId,
+                        userId: !!userId,
+                        processStepId: !!processStepId,
+                        applicationId: !!applicationId,
+                    },
+                )
             }
 
             // update process step with measure info
