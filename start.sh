@@ -4,7 +4,7 @@ set -e
 # Fetch API key from Secrets Manager at boot (ECS only)
 if [ -n "$REACT_APP_SECRET_ID" ]; then
   echo "Fetching API key from Secrets Manager..."
-  export VAPOR_QUALITY_API_KEY=$(node -e "
+  export VAPOR_QUALITY_API_KEY=$(cd /server && node -e "
     const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
     const client = new SecretsManagerClient({ region: process.env.REACT_APP_AWS_REGION });
     client.send(new GetSecretValueCommand({ SecretId: process.env.REACT_APP_SECRET_ID }))
